@@ -1,0 +1,16 @@
+*~
+.*
+!.gitignore
+/*.sql
+node_modules
+
+.env
+npm-debug.log
+
+_Inline/
+
+# temp icon files
+tmp/*
+!tmp/.gitkeep
+/tests/output/*
+/package-lock.json
