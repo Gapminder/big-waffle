@@ -2,6 +2,7 @@ const FileSystem = require("fs");
 const { Writable } = require('stream');
 
 const CSVParser = require("csv-parse");
+const firstline = require("firstline");
 const {sample, sampleSize} = require('lodash');
 
 const { DB } = require("./maria");
@@ -80,12 +81,27 @@ class Table extends Collection {
    */
   constructor (name) {
     super(name);
-    this.schema = {};
+    this.fieldMap = {};
+    this._schema = {};
   }
-  
+
+  toJSON() {
+    /*
+     * Return a plain object that represents this dataset and
+     * can be saved in a collection.
+     */
+    const doc = {};
+    for (const key in this) {
+      if (key.startsWith('_') === false) {
+        doc[key] = this[key];
+      }
+    }
+    return doc;
+  }
+
   get estimatedRowSize() {
     let size = 0;
-    for (const fieldDef of Object.values(this.schema)) {
+    for (const fieldDef of Object.values(this._schema)) {
       if (fieldDef.sqlType === `VARCHAR`) {
         size += (fieldDef.size) * 2 + 2;
       } else if (fieldDef.sqlType === `INTEGER`) {
@@ -100,10 +116,10 @@ class Table extends Collection {
   }
 
   indexOn(columnName, primary=false, unique=false) {
-    let columnDefinition = this.schema[columnName];
+    let columnDefinition = this._schema[columnName];
     if (!columnDefinition) {
       columnDefinition = {};
-      this.schema[columnName] = columnDefinition;
+      this._schema[columnName] = columnDefinition;
     }
     columnDefinition.index = `${primary ? ' PRIMARY' : (unique ? ' UNIQUE' : '')} KEY`;
     this.keys.add(columnName);
@@ -113,21 +129,40 @@ class Table extends Collection {
     return this.indexOn(columnName, true);
   }
   
+  async setPrimaryIndexTo(columns, database=undefined) {
+    let sql = `ALTER TABLE ${this.name} ADD PRIMARY KEY (${columns.join(' ,')});`;
+    if (database) {
+      this._database = database;
+    }
+    await this._database.query(sql);
+    console.log(sql);
+    return this;
+  }
+  
+  async dropPrimaryIndex(database=undefined) {
+    let sql = `ALTER TABLE ${this.name} DROP PRIMARY KEY;`;
+    if (database) {
+      this._database = database;
+    }
+    await this._database.query(sql);
+    return this;
+  }
+  
   async createIn(database, withIndexes=true) {
     // shorten too long columnNames and save mapping
     const fieldMap = {};
-    for (const columnName of Object.keys(this.schema)) {
+    for (const columnName of Object.keys(this._schema)) {
       if (columnName.length > 64) {
         const newColumnName = sample("abcdefghijkmnopqrstuvwxyz") + sampleSize("abcdefghijkmnopqrstuvwxyz23456789", 5).join('');
         fieldMap[columnName] = newColumnName;
-        this.schema[newColumnName] = this.schema[columnName];
-        delete this.schema[columnName];
+        this._schema[newColumnName] = this._schema[columnName];
+        delete this._schema[columnName];
       }
     }
-    
+    this.fieldMap = fieldMap;
     let sql = `CREATE OR REPLACE TABLE ${this.name} (`;
-    sql = Object.keys(this.schema).reduce((statement, columnName) => {
-      const def = this.schema[columnName];
+    sql = Object.keys(this._schema).reduce((statement, columnName) => {
+      const def = this._schema[columnName];
       let type = def.sqlType;
       if (type === `VARCHAR`) {
         type = `VARCHAR(${def.size})`
@@ -142,8 +177,8 @@ class Table extends Collection {
   }
 
   async createIndexesIn(database) {
-    for (const columnName of Object.keys(this.schema)) {
-      const def = this.schema[columnName];
+    for (const columnName of Object.keys(this._schema)) {
+      const def = this._schema[columnName];
       if (def.index) {
         const sql = `CREATE INDEX ${columnName}_idx ON ${this.name} (${columnName});`;
         console.log(sql);
@@ -192,7 +227,7 @@ class Table extends Collection {
       for (const field of Object.keys(preparedRecord)) {
         if (this.keys.has(field)) {
           filter[field] = preparedRecord[field];
-          if (!filter[field] && this.schema[field].index.match(/PRIMARY/g)) {
+          if (!filter[field] && this._schema[field].index.match(/PRIMARY/g)) {
             throw new Error(`Record misses value for primary key ${field}\n${record}`);
           } 
         } else {
@@ -222,24 +257,21 @@ ELSE
   INSERT INTO ${this.name} SET ${values};
 END IF;
 END;`
-      this.getConnection()
+      return this.getConnection()
       .then(connection => {
-        const promise = connection.query(statement);
-        promise.catch(dbErr => {
-          if (dbErr.code === 'ER_LOCK_DEADLOCK') {
-            console.log('deadlock occured going to retry in 500 ms');
-            wait(500).then(() => connection.query(statement));
-          } else {
-            throw dbErr;
-          }
-        });
-        return promise;        
+        return connection.query(statement);
       })
       .catch(err => {
+        if (err.code === 'ER_LOCK_DEADLOCK') {
+          console.log('deadlock occured going to retry in 500 ms');
+          return wait(500).then(() => connection.query(statement));
+        }
+        console.error(err);
         if (this._connection) {
           this._connection.end();
           delete this._connection;
         }
+        throw err;
       });
     } catch (err) {
       console.log(err);
@@ -284,16 +316,77 @@ END;`
     
   }
 
+  loadCSVFile(name, path, columns, separator=',') {
+    /*
+     * Parse all records in the CSV file and insert into this SQL table.
+     * 
+     * The file may contain a subset of the final set of columns for this table.
+     * The provided list of (non-key) columns must exist in both the CSV file
+     * as well as already in this table. 
+     * 
+     * Returns a Promise that resolves to this Table.
+     */
+    const table = this;
+    // 1. Create a (temporary) table for the CSV file, using the CONNECT db engine.
+    /* CREATE TABLE aid_given_percent_of_gni (geo CHAR(3) NOT NULL, time INT NOT NULL, 
+     * aid_given_percent_of_gni DOUBLE) 
+     * engine=CONNECT table_type=CSV file_name='/Users/robert/Projects/Gapminder/ddf--gapminder--systema_globalis/ddf--datapoints--aid_given_percent_of_gni--by--geo--time.csv' 
+     * header=1 sep_char=',';
+     */
+    let csvColumns;
+    return firstline(path)
+    .then((csvHeader) => {
+      csvColumns = csvHeader.split(separator).map(columnName => table.fieldMap[columnName] || columnName);
+      const columnDefs = csvColumns.reduce((statement, columnName) => {
+        const def = this._schema[columnName];
+        let type = def.sqlType;
+        if (type === `JSON`) { //JSON type is not supported for CSV files
+          type = `VARCHAR`;
+        }
+        if (type === `VARCHAR`) {
+          type = `VARCHAR(${def.size})`
+        }
+        return `${statement} ${columnName} ${type},`;
+      }, '');
+      let sql = `CREATE TABLE ${name} (${columnDefs.slice(0,-1)}) engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${separator}';`;
+      console.log(sql);
+      return this._database.query(sql)
+    })
+    .then(() => {
+      // 2. Copy all records
+      /* INSERT INTO dpstest (geo, time, aid_percent) 
+       *   SELECT * FROM aid_given_percent_of_gni 
+       *   ON DUPLICATE KEY UPDATE dpstest.aid_percent = aid_given_percent_of_gni.aid_given_percent_of_gni;
+       */
+      console.log(`
+        INSERT INTO ${table.name} (${csvColumns.join(', ')})
+          SELECT * FROM ${name}
+          ON DUPLICATE KEY UPDATE ${this.name}.${name} = ${name}.${name};`);
+      return table._database.query(`
+        INSERT INTO ${table.name} (${csvColumns.join(', ')})
+          SELECT * FROM ${name}
+          ON DUPLICATE KEY UPDATE ${this.name}.${name} = ${name}.${name};`);
+    })
+    .then(() => {
+      // 3. Delete the temporary table
+      return table._database.query(`DROP TABLE ${name}`);
+    })
+    .then(() => {
+      return table;
+    })
+    .catch((err) => console.error(err));
+  }
+
   updateSchemaWith(record, fieldMap) {
     /*
      * Update the schema with the data from this record.
      */
     const preparedRecord = this._prepareRecord(record, fieldMap);
     for (const columnName of Object.keys(preparedRecord)) {
-      let def = this.schema[columnName];
+      let def = this._schema[columnName];
       if (!def) {
         def = {};
-        this.schema[columnName] = def;
+        this._schema[columnName] = def;
       }
       const typicalValue = preparedRecord[columnName];
       if (typeof typicalValue === 'number') {

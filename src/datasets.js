@@ -17,17 +17,18 @@ class Dataset {
    */
   constructor(name, version) {
     this.name = name;
+    this.version = version;
     this.entitySets = {}; //mapping of entity sets to entity domains
   }
 
-  _asDoc(includeId=false) {
+  toJSON() {
     /*
      * Return a plain object that represents this dataset and
      * can be saved in a collection.
      */
     const doc = {};
     for (const key in this) {
-      if ((includeId && key === '_id') || key.startsWith('_') === false) {
+      if (key.startsWith('_') === false) {
         doc[key] = this[key];
       }
     }
@@ -39,11 +40,40 @@ class Dataset {
   }
 
   get _keyFields() {
-    return ['name'];
+    return ['name', 'version'];
   }
-  
+
+  incrementVersion(newVersion = null) {
+    if (! this.version) {
+      this.version = newVersion || `${Moment.utc().seconds(1).format('YYYYMMDDss')}`;
+    } else if (newVersion) {
+      this.version = newVersion;
+    } else if (/[0-9]{2}$/.test(this.version)) {
+      let root = this.version.slice(0, -2);
+      const minorVersion = Number.parseInt(this.version.slice(-2));
+      console.log(minorVersion);
+      let versionDate = Moment.utc(root, 'YYYYMMDD', true);
+      if (versionDate.isValid()) {
+        if (versionDate.isSameOrAfter(Moment.utc(), 'day')) {
+          versionDate.seconds(minorVersion + 1);
+        } else {
+          versionDate = Moment.utc().seconds(1);
+        }
+        this.version = `${versionDate.format('YYYYMMDDss')}`;
+      } else {
+        this.version = `${root}${minorVersion < 10 ? '0' : ''}${minorVersion + 1}`;
+      }
+    } else {
+      this.version = this.version + '1';
+    }
+    this._isNew = true;
+  }
+
   async save() {
-    const doc = this._asDoc();
+    if (! this.version) {
+      this.incrementVersion();
+    }
+    const doc = this.toJSON();
     let filter = '';
     if (filter.endsWith(',')) {
       filter = filter.slice(0, -1);
@@ -95,48 +125,19 @@ class DataSource extends (Dataset) {
    */
   constructor(name, version) {
     super(name);
-    this.version = version;
-  }
-  
-  incrementVersion(newVersion = null) {
-    if (! this.version) {
-      this.version = newVersion || `${Moment.utc().seconds(1).format('YYYYMMDDss')}`;
-    } else if (newVersion) {
-      this.version = newVersion;
-    } else if (/[0-9]{2}$/.test(this.version)) {
-      let root = this.version.slice(0, -2);
-      const minorVersion = Number.parseInt(this.version.slice(-2));
-      console.log(minorVersion);
-      let versionDate = Moment.utc(root, 'YYYYMMDD', true);
-      if (versionDate.isValid()) {
-        if (versionDate.isSameOrAfter(Moment.utc(), 'day')) {
-          versionDate.seconds(minorVersion + 1);
-        } else {
-          versionDate = Moment.utc().seconds(1);
-        }
-        this.version = `${versionDate.format('YYYYMMDDss')}`;
-      } else {
-        this.version = `${root}${minorVersion < 10 ? '0' : ''}${minorVersion + 1}`;
-      }
-    } else {
-      this.version = this.version + '1';
-    }
-    this._isNew = true;
-  }
-
-  async save() {
-    if (! this.version) {
-      this.incrementVersion();
-    }
-    return await super.save();
-  }
-
-  get _keyFields() {
-    return super._keyFields.concat(['version']);
+    this.datapoints = {}; //mapping of key tuples to Collections (Tables).
   }
   
   _getCollection(collectionName) {
     return `${this.name}_${collectionName}_${this.version}`;
+  }
+
+  _getDatapointCollection(key) {
+    let collection = this.datapoints[key];
+    if (!collection) {
+      collection = this.datapoints[key] = new Table(this._getCollection(key));
+    }
+    return collection;
   }
 
   async open() {
@@ -226,36 +227,42 @@ class DataSource extends (Dataset) {
           for (const file of files) {
             await table.updateSchemaFromCSVFile(`${dirPath}/${file}.csv`, this._getFieldMapForEntityCSVFile(file)); //TODO: look up the actual file from the resource entry
           }
-          console.log(table.schema);
+          console.log(table._schema);
           await table.createIn(DB);
-          // 3. Now load the data from each of the resources defined for the (entity sets of the) domain.
           for (const file of files) {
-//            if (file != 'ddf--entities--geo--country') continue;
             await table.loadFromCSVFile(`${dirPath}/${file}.csv`, this._getFieldMapForEntityCSVFile(file)); //TODO: look up the actual file from the resource entry
           }
         });
-        // 3. Now create the datapoints table and then load all the data.
-        const datapoints = new Table(this._getCollection('datapoints'));
-        const files = new Set();
+        // 3. Now create the datapoints tables and then load all the data.
         for (const datapointDef of dataPackage.ddfSchema.datapoints) {
+          let primaryIndex = [];
           for (const key of datapointDef.primaryKey) {
-            datapoints.indexOn(this.entitySets[key] || key);
+            primaryIndex.push(this.entitySets[key] || key);
           }
+          primaryIndex = primaryIndex.join('$'); //the dollar sign is allowed in table names
+          let dpCollection = this._getDatapointCollection(primaryIndex);
+          dpCollection._files = dpCollection._files || {};
           for (const file of datapointDef.resources) {
-            files.add(file); //TODO: look up the actual file from the resource entry
+            dpCollection._files[file] = datapointDef.value; //TODO: look up the actual file from the resource entry
+            await dpCollection.updateSchemaFromCSVFile(`${dirPath}/${file}.csv`, this.entitySets);
           }
         }
-        for (const file of files) {
-          await datapoints.updateSchemaFromCSVFile(`${dirPath}/${file}.csv`, this.entitySets);
-        }
-        console.log(datapoints.schema);
-        console.log(`Expected row size is ${datapoints.estimatedRowSize} bytes`);
-        const datapointsFieldMap = await datapoints.createIn(DB, false);
-        console.log(datapointsFieldMap);
-        Object.assign(datapointsFieldMap, this.entitySets);
-        await datapoints.createIndexesIn(DB);
-        for (const file of files) {
-          await datapoints.loadFromCSVFile(`${dirPath}/${file}.csv`, datapointsFieldMap);
+        for (const key in this.datapoints) {
+          const table = this.datapoints[key];
+//          console.log(table._schema);
+          console.log(`Expected row size is ${table.estimatedRowSize} bytes`);
+          const datapointsFieldMap = await table.createIn(DB, false);
+          console.log(datapointsFieldMap);
+          Object.assign(datapointsFieldMap, this.entitySets);
+          const columns = key.split('$').map(columnName => datapointsFieldMap[columnName] || columnName);
+          await table.createIndexesIn(DB);
+          await table.setPrimaryIndexTo(columns);
+          for (const file in table._files) {
+            let indicator = table._files[file];
+            indicator = table.fieldMap[indicator] || indicator;
+            await table.loadCSVFile(indicator, `${dirPath}/${file}.csv`, [...columns, indicator]);
+          }
+          await table.dropPrimaryIndex();
         }
         resolve(this);
       } catch (err) {
@@ -273,15 +280,28 @@ class DataSource extends (Dataset) {
   }
 }
 
+/*
+ * Create the necessary tables.
+ */
+DB.query(`CREATE TABLE datasets (name VARCHAR(100) NOT NULL, version CHAR(10), definition JSON);`)
+.then(() => {
+  console.log(`Created new datasets table`);
+})
+.catch((err) => {
+  console.log(`Datasets table found`);
+});
+
 Object.assign(exports, {
   Dataset
 })
 
+console.log(`Started ${Moment.utc()}`);
 const sg = new DataSource("systema_globalis");
 sg.open()
   .then(async function(ds) {
 //    ds.incrementVersion();
     ds.save();
     await ds.loadFromDirectory('/Users/robert/Projects/Gapminder/ddf--gapminder--systema_globalis');
+    console.log(`Finished ${Moment.utc()}`);
 //    DB.end();
   });
