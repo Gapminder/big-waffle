@@ -227,8 +227,8 @@ class Table extends Collection {
       for (const field of Object.keys(preparedRecord)) {
         if (this.keys.has(field)) {
           filter[field] = preparedRecord[field];
-          if (!filter[field] && this._schema[field].index.match(/PRIMARY/g)) {
-            throw new Error(`Record misses value for primary key ${field}\n${record}`);
+          if ((filter[field] === undefined || filter[field] === null) && this._schema[field].index.match(/PRIMARY/g)) {
+            throw new Error(`Record misses value for primary key ${field}\n${JSON.stringify(record)}`);
           } 
         } else {
           sets[field] = preparedRecord[field];
@@ -247,7 +247,7 @@ class Table extends Collection {
         return `${sql}${columnName}=${sqlSafe(preparedRecord[columnName], true)}, `
       }, ``);
       values = values.slice(0, -2);
-      const statement = `
+      const statement = Object.keys(sets).length > 0 ? `
 BEGIN NOT ATOMIC
 SELECT COUNT(*) FROM ${this.name} WHERE ${condition} INTO @recordExists;
 IF @recordExists > 0
@@ -256,7 +256,14 @@ THEN
 ELSE
   INSERT INTO ${this.name} SET ${values};
 END IF;
-END;`
+END;` :
+`
+BEGIN NOT ATOMIC
+SELECT COUNT(*) FROM ${this.name} WHERE ${condition} INTO @recordExists;
+IF @recordExists < 1 THEN
+  INSERT INTO ${this.name} SET ${values};
+END IF;
+END;`;
       return this.getConnection()
       .then(connection => {
         return connection.query(statement);

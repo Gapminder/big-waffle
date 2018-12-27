@@ -192,6 +192,10 @@ class DataSource extends (Dataset) {
     return new Promise(async (resolve, reject) => {
       try {
         const dataPackage = await JSONFile.readFile(`${dirPath}/datapackage.json`);
+        const resources = dataPackage.resources.reduce((all, resource) => {
+          all[resource.name] = resource.path;
+          return all;
+        }, {});
         // 1. Read concepts from file and store in 'concepts' collection.
         const concepts = new Table(this._getCollection('concepts'));
         concepts.primaryIndexOn('concept');
@@ -217,7 +221,7 @@ class DataSource extends (Dataset) {
           if (!domain) {
             throw new Error(`Domain for entity set ${entitySet} was not defined in concepts`);
           }
-          entityDef.resources.forEach(res => domains[domain].add(res));
+          entityDef.resources.forEach(res => domains[domain].add(resources[res]));
         }
         console.log(domains);
         Object.keys(domains).forEach(async dom => {
@@ -225,12 +229,12 @@ class DataSource extends (Dataset) {
           table.primaryIndexOn(dom);
           const files = domains[dom];
           for (const file of files) {
-            await table.updateSchemaFromCSVFile(`${dirPath}/${file}.csv`, this._getFieldMapForEntityCSVFile(file)); //TODO: look up the actual file from the resource entry
+            await table.updateSchemaFromCSVFile(`${dirPath}/${file}`, this._getFieldMapForEntityCSVFile(file));
           }
           console.log(table._schema);
           await table.createIn(DB);
           for (const file of files) {
-            await table.loadFromCSVFile(`${dirPath}/${file}.csv`, this._getFieldMapForEntityCSVFile(file)); //TODO: look up the actual file from the resource entry
+            await table.loadFromCSVFile(`${dirPath}/${file}`, this._getFieldMapForEntityCSVFile(file));
           }
         });
         // 3. Now create the datapoints tables and then load all the data.
@@ -242,9 +246,10 @@ class DataSource extends (Dataset) {
           primaryIndex = primaryIndex.join('$'); //the dollar sign is allowed in table names
           let dpCollection = this._getDatapointCollection(primaryIndex);
           dpCollection._files = dpCollection._files || {};
-          for (const file of datapointDef.resources) {
-            dpCollection._files[file] = datapointDef.value; //TODO: look up the actual file from the resource entry
-            await dpCollection.updateSchemaFromCSVFile(`${dirPath}/${file}.csv`, this.entitySets);
+          for (const res of datapointDef.resources) {
+            const file = resources[res];
+            dpCollection._files[file] = datapointDef.value;
+            await dpCollection.updateSchemaFromCSVFile(`${dirPath}/${file}`, this.entitySets);
           }
         }
         for (const key in this.datapoints) {
@@ -260,9 +265,11 @@ class DataSource extends (Dataset) {
           for (const file in table._files) {
             let indicator = table._files[file];
             indicator = table.fieldMap[indicator] || indicator;
-            await table.loadCSVFile(indicator, `${dirPath}/${file}.csv`, [...columns, indicator]);
+            await table.loadCSVFile(indicator, `${dirPath}/${file}`, [...columns, indicator]);
           }
           await table.dropPrimaryIndex();
+          //TODO: create plain, single column, indexes for elements of the key with a sufficient cardinality, e.g. >= 100;
+          // SELECT COUNT(DISTINCT gender) FROM population_age$geo$gender$year_2018122701;
         }
         resolve(this);
       } catch (err) {
@@ -296,12 +303,12 @@ Object.assign(exports, {
 })
 
 console.log(`Started ${Moment.utc()}`);
-const sg = new DataSource("systema_globalis");
+const sg = new DataSource("population");
 sg.open()
   .then(async function(ds) {
 //    ds.incrementVersion();
     ds.save();
-    await ds.loadFromDirectory('/Users/robert/Projects/Gapminder/ddf--gapminder--systema_globalis');
+    await ds.loadFromDirectory('/Users/robert/Projects/Gapminder/ddf--gapminder--population');
     console.log(`Finished ${Moment.utc()}`);
 //    DB.end();
   });
