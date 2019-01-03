@@ -3,6 +3,8 @@ function getEnvironmentVariable(key, _default) {
   if (envVAR) {
     if (typeof(_default) === 'boolean') {
       return envVar.toLowerCase === 'true';
+    } else if (typeof(_default) === 'number') {
+      return Number(envVAR);
     }
     return envVAR;
   } else {
@@ -13,6 +15,7 @@ function getEnvironmentVariable(key, _default) {
 module.exports = {
   LogErrors: getEnvironmentVariable('LOG_ERRORS', false),
   MaintenanceMode: getEnvironmentVariable('MAINTENANCE_MODE', false),
+  HTTPPort: getEnvironmentVariable('HTTP_PORT', 80),
   DBHost: getEnvironmentVariable('DB_HOST', 'localhost'),
   DBUser: getEnvironmentVariable('DB_USER', 'gapminder'),
   DBPassword: getEnvironmentVariable('DB_PWD', 'password'),

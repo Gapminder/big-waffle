@@ -1,10 +1,54 @@
 const FS = require("fs");
+const { Readable, Transform } = require('stream');
 
 const JSONFile = require('jsonfile');
 const Moment = require('moment');
 
 const { DB } = require("./maria");
 const { Table } = require("./collections");
+
+class RecordPrinter extends Transform {
+  /*
+   * Transforms a stream of records (Object instances) to a JSON array representation.
+   */
+  constructor (header, start=undefined) {
+    super({
+      readableHighWaterMark: 48000,
+      writableHighWaterMark: 100,
+      writableObjectMode: true,
+      transform: (chunk, encoding, callback) => {
+        try {
+          if (!this._headerPushed) {
+            this._headerPushed = true;
+            this.push(`[\n${JSON.stringify(header)}\n`);
+          }
+          this.push(`,${JSON.stringify(chunk)}`);
+          this._processed += 1;
+          callback();
+        } catch (err) {
+          console.error(err);
+          callback(err);
+        }
+      },
+      flush: (callback) => {
+        try {
+          this.push(`\n]`);
+          console.log(`Query returned ${this._processed} records.`);
+          if (start) {
+            console.log(`Processing request took ${Moment().diff(start)}ms.`);
+          }
+          callback();
+        } catch (err) {
+          console.error(err);
+          callback(err);
+        }
+      }
+    });
+    this._headerPushed = false;
+    this._processed = 0;
+  }
+  
+}
 
 class Dataset {
   /*
@@ -166,6 +210,21 @@ class DataSource extends (Dataset) {
     return this;
   }
 
+  async queryStream(key, values, start=undefined) {
+    const table = this._getDatapointCollection(key);
+    const sql = `SELECT ${values.join(', ')} FROM ${table.name};`;
+    const connection = await DB.getConnection();
+    const stream = connection.queryStream({sql, rowsAsArray: true});
+    stream
+    .on('error', err => {
+      console.error(err);
+      connection.end();
+    })
+    .on('end', () => connection.end());
+    const textStream = stream.pipe(new RecordPrinter(values, start));
+    return textStream;
+  }
+
   async revert() {
     /*
      * Restore this Dataset to the one-but-last version
@@ -287,6 +346,10 @@ class DataSource extends (Dataset) {
   }
 }
 
+Dataset.all = async () => {
+  return await DB.query(`SELECT name, version FROM datasets;`);
+}
+
 /*
  * Create the necessary tables.
  */
@@ -299,16 +362,6 @@ DB.query(`CREATE TABLE datasets (name VARCHAR(100) NOT NULL, version CHAR(10), d
 });
 
 Object.assign(exports, {
-  Dataset
+  Dataset, 
+  DataSource
 })
-
-console.log(`Started ${Moment.utc()}`);
-const sg = new DataSource("population");
-sg.open()
-  .then(async function(ds) {
-//    ds.incrementVersion();
-    ds.save();
-    await ds.loadFromDirectory('/Users/robert/Projects/Gapminder/ddf--gapminder--population');
-    console.log(`Finished ${Moment.utc()}`);
-//    DB.end();
-  });
