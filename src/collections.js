@@ -99,18 +99,23 @@ class Table extends Collection {
     return doc;
   }
 
+  estimatedColumnSize(colName) {
+    let fieldDef = this._schema[colName]
+    if (fieldDef.sqlType === `VARCHAR`) {
+      return (fieldDef.size) * 2 + 2;
+    } else if (fieldDef.sqlType === `INTEGER`) {
+      return 2;
+    } else if (fieldDef.sqlType === `DOUBLE`) {
+      return 8;
+    } else if (fieldDef.sqlType === `BOOLEAN`) {
+      return 1;
+    }
+  }
+
   get estimatedRowSize() {
     let size = 0;
-    for (const fieldDef of Object.values(this._schema)) {
-      if (fieldDef.sqlType === `VARCHAR`) {
-        size += (fieldDef.size) * 2 + 2;
-      } else if (fieldDef.sqlType === `INTEGER`) {
-        size += 2;
-      } else if (fieldDef.sqlType === `DOUBLE`) {
-        size += 8;
-      } else if (fieldDef.sqlType === `BOOLEAN`) {
-        size += 1;
-      }
+    for (const colName of Object.key(this._schema)) {
+      size += this.estimatedColumnSize(colName)
     }
     return size;
   }
@@ -118,11 +123,27 @@ class Table extends Collection {
   indexOn(columnName, primary=false, unique=false) {
     let columnDefinition = this._schema[columnName];
     if (!columnDefinition) {
-      columnDefinition = {};
+      columnDefinition = {uniques: new Set()};
       this._schema[columnName] = columnDefinition;
     }
     columnDefinition.index = `${primary ? ' PRIMARY' : (unique ? ' UNIQUE' : '')} KEY`;
     this.keys.add(columnName);
+  }
+
+  optimizeSchema() {
+    // check if it makes sense to pivot one or more of the key columns
+//    let pivots = {}
+//    for (const col of key.split('$')) {
+//      const def = table._schema[col]
+//      if (def.cardinality < 200 && table.estimatedRowSize + (def.cardinality * table.estimatedColumnSize(col)))
+//    }
+    
+    
+    for (const def of Object.values(this._schema)) {
+      if (def.uniques) {
+        delete def.uniques;
+      }
+    }
   }
 
   primaryIndexOn(columnName) {
@@ -381,7 +402,10 @@ END;`;
     .then(() => {
       return table;
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      console.error(err)
+      process.exit(1)
+    })
   }
 
   updateSchemaWith(record, fieldMap) {
@@ -392,10 +416,17 @@ END;`;
     for (const columnName of Object.keys(preparedRecord)) {
       let def = this._schema[columnName];
       if (!def) {
-        def = {};
+        def = {uniques: new Set()};
         this._schema[columnName] = def;
       }
       const typicalValue = preparedRecord[columnName];
+      if (def.cardinality === undefined || def.cardinality < 201) {
+        def.uniques.add(typicalValue);
+        def.cardinality = def.uniques.size;
+        if (def.cardinality > 200) {
+          delete def.uniques;
+        }
+      }
       if (typeof typicalValue === 'number') {
         if (Number.isInteger(typicalValue)) {
           if (!def.sqlType || def.sqlType === `INTEGER`) {
