@@ -114,7 +114,7 @@ class Table extends Collection {
 
   get estimatedRowSize() {
     let size = 0;
-    for (const colName of Object.key(this._schema)) {
+    for (const colName of Object.keys(this._schema)) {
       size += this.estimatedColumnSize(colName)
     }
     return size;
