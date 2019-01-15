@@ -109,6 +109,8 @@ class Table extends Collection {
       return 8;
     } else if (fieldDef.sqlType === `BOOLEAN`) {
       return 1;
+    } else if ([`JSON`, `TEXT`, `BLOB`].includes(fieldDef.sqlType)) {
+      return 0;
     }
   }
 
@@ -448,7 +450,9 @@ END;`;
           } else {
             def.sqlType = `VARCHAR`;
           }
-        } else {
+        } else if (def.size > 2000 ){
+          def.sqlType = `TEXT`;
+        } else if (def.sqlType !== `TEXT`){
           def.sqlType = `VARCHAR`;
         }
       }

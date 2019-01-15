@@ -240,106 +240,100 @@ class DataSource extends (Dataset) {
     return {}
   }
 
-  loadFromDirectory (dirPath, options) {
+  async loadFromDirectory (dirPath, options) {
     if (dirPath.endsWith('/')) {
       dirPath = dirPath.slice(0, -1)
     }
 
-    return new Promise(async (resolve, reject) => {
-      try {
-        const dataPackage = await JSONFile.readFile(`${dirPath}/datapackage.json`)
-        const resources = dataPackage.resources.reduce((all, resource) => {
-          all[resource.name] = resource.path
-          return all
-        }, {})
-        // 1. Read concepts from file and store in 'concepts' collection.
-        const concepts = new Table(this._getCollection('concepts'))
-        concepts.primaryIndexOn('concept')
-        await concepts.updateSchemaFromCSVFile(dirPath + '/ddf--concepts.csv')
-        await concepts.createIn(DB)
-        await concepts.loadFromCSVFile(dirPath + '/ddf--concepts.csv')
-        // 2. Map entity sets to entity domains
-        const domains = (await DB.query(`SELECT concept FROM ${concepts.name} WHERE concept_type = 'entity_domain';`))
-          .reduce((d, domain) => {
-            d[domain.concept] = new Set()
-            return d
-          }, {})
-        this.entitySets = (await DB.query(`SELECT concept, domain FROM ${concepts.name} WHERE concept_type = 'entity_set';`))
-          .reduce((s, entitySet) => {
-            s[entitySet.concept] = entitySet.domain
-            return s
-          }, {})
-        console.log(this.entitySets)
-        // 2. Create tables for each entity domain and load all files for that entity domain.
-        for (const entityDef of dataPackage.ddfSchema.entities) {
-          const entitySet = entityDef.primaryKey[0]
-          const domain = domains[entitySet] ? entitySet : this.entitySets[entitySet]
-          if (!domain) {
-            throw new Error(`Domain for entity set ${entitySet} was not defined in concepts`)
-          }
-          entityDef.resources.forEach(res => domains[domain].add(resources[res]))
-        }
-        console.log(domains)
-        Object.keys(domains).forEach(async dom => {
-          const table = new Table(this._getCollection(dom))
-          table.primaryIndexOn(dom)
-          const files = domains[dom]
-          for (const file of files) {
-            await table.updateSchemaFromCSVFile(`${dirPath}/${file}`, this._getFieldMapForEntityCSVFile(file))
-          }
-          console.log(table._schema)
-          await table.createIn(DB)
-          for (const file of files) {
-            await table.loadFromCSVFile(`${dirPath}/${file}`, this._getFieldMapForEntityCSVFile(file))
-          }
-        })
-        // 3. Now create the datapoints tables and then load all the data.
-        for (const datapointDef of dataPackage.ddfSchema.datapoints) {
-          let primaryIndex = []
-          for (const key of datapointDef.primaryKey) {
-            primaryIndex.push(this.entitySets[key] || key)
-          }
-          primaryIndex = primaryIndex.sort().join('$') // the dollar sign is allowed in table names
-          let dpCollection = this._getDatapointCollection(primaryIndex)
-          dpCollection._files = dpCollection._files || {}
-          for (const res of datapointDef.resources) {
-            const file = resources[res]
-            if (dpCollection._files[file] !== datapointDef.value) { // files are often used multiple times, for different entity sets
-              dpCollection._files[file] = datapointDef.value
-              await dpCollection.updateSchemaFromCSVFile(`${dirPath}/${file}`, this.entitySets)
-            }
-          }
-        }
-        for (const key in this.datapoints) {
-          const table = this.datapoints[key]
-          if (options.onlyParse === true ) {
-            table.optimizeSchema();
-            console.log(table._schema);
-            console.log(`Expected row size is ${table.estimatedRowSize} bytes`)
-          } else {
-            table.optimizeSchema();
-            console.log(`Expected row size is ${table.estimatedRowSize} bytes`)
-            const datapointsFieldMap = await table.createIn(DB, false)
-            console.log(datapointsFieldMap)
-            Object.assign(datapointsFieldMap, this.entitySets)
-            const columns = key.split('$').map(columnName => datapointsFieldMap[columnName] || columnName)
-            await table.createIndexesIn(DB)
-            await table.setPrimaryIndexTo(columns)
-            for (const file in table._files) {
-              let indicator = table._files[file]
-              indicator = table.fieldMap[indicator] || indicator
-              await table.loadCSVFile(indicator, `${dirPath}/${file}`, [...columns, indicator])
-            }
-            await table.dropPrimaryIndex()
-            // TODO: create plain, single column, indexes for elements of the key with a sufficient cardinality, e.g. >= 100;
-            // SELECT COUNT(DISTINCT gender) FROM population_age$geo$gender$year_2018122701;
-          }
-        }
-        resolve(this)
-      } catch (err) {
-        reject(err)
+    const dataPackage = await JSONFile.readFile(`${dirPath}/datapackage.json`)
+    const resources = dataPackage.resources.reduce((all, resource) => {
+      all[resource.name] = resource.path
+      return all
+    }, {})
+    // 1. Read concepts from file and store in 'concepts' collection.
+    const concepts = new Table(this._getCollection('concepts'))
+    concepts.primaryIndexOn('concept')
+    await concepts.updateSchemaFromCSVFile(dirPath + '/ddf--concepts.csv')
+    await concepts.createIn(DB)
+    await concepts.loadFromCSVFile(dirPath + '/ddf--concepts.csv')
+    // 2. Map entity sets to entity domains
+    const domains = (await DB.query(`SELECT concept FROM ${concepts.name} WHERE concept_type = 'entity_domain';`))
+      .reduce((d, domain) => {
+        d[domain.concept] = new Set()
+        return d
+      }, {})
+    this.entitySets = (await DB.query(`SELECT concept, domain FROM ${concepts.name} WHERE concept_type = 'entity_set';`))
+      .reduce((s, entitySet) => {
+        s[entitySet.concept] = entitySet.domain
+        return s
+      }, {})
+    console.log(this.entitySets)
+    // 2. Create tables for each entity domain and load all files for that entity domain.
+    for (const entityDef of dataPackage.ddfSchema.entities) {
+      const entitySet = entityDef.primaryKey[0]
+      const domain = domains[entitySet] ? entitySet : this.entitySets[entitySet]
+      if (!domain) {
+        throw new Error(`Domain for entity set ${entitySet} was not defined in concepts`)
+      }
+      entityDef.resources.forEach(res => domains[domain].add(resources[res]))
+    }
+    console.log(domains)
+    Object.keys(domains).forEach(async dom => {
+      const table = new Table(this._getCollection(dom))
+      table.primaryIndexOn(dom)
+      const files = domains[dom]
+      for (const file of files) {
+        await table.updateSchemaFromCSVFile(`${dirPath}/${file}`, this._getFieldMapForEntityCSVFile(file))
+      }
+      console.log(table._schema)
+      await table.createIn(DB)
+      for (const file of files) {
+        await table.loadFromCSVFile(`${dirPath}/${file}`, this._getFieldMapForEntityCSVFile(file))
       }
     })
+    // 3. Now create the datapoints tables and then load all the data.
+    for (const datapointDef of dataPackage.ddfSchema.datapoints) {
+      let primaryIndex = []
+      for (const key of datapointDef.primaryKey) {
+        primaryIndex.push(this.entitySets[key] || key)
+      }
+      primaryIndex = primaryIndex.sort().join('$') // the dollar sign is allowed in table names
+      let dpCollection = this._getDatapointCollection(primaryIndex)
+      dpCollection._files = dpCollection._files || {}
+      for (const res of datapointDef.resources) {
+        const file = resources[res]
+        if (dpCollection._files[file] !== datapointDef.value) { // files are often used multiple times, for different entity sets
+          dpCollection._files[file] = datapointDef.value
+          await dpCollection.updateSchemaFromCSVFile(`${dirPath}/${file}`, this.entitySets)
+        }
+      }
+    }
+    for (const key in this.datapoints) {
+      const table = this.datapoints[key]
+      if (options.onlyParse === true ) {
+        table.optimizeSchema();
+        console.log(table._schema);
+        console.log(`Expected row size is ${table.estimatedRowSize} bytes`)
+      } else {
+        table.optimizeSchema();
+        console.log(`Expected row size is ${table.estimatedRowSize} bytes`)
+        const datapointsFieldMap = await table.createIn(DB, false)
+        console.log(datapointsFieldMap)
+        Object.assign(datapointsFieldMap, this.entitySets)
+        const columns = key.split('$').map(columnName => datapointsFieldMap[columnName] || columnName)
+        await table.createIndexesIn(DB)
+        await table.setPrimaryIndexTo(columns)
+        for (const file in table._files) {
+          let indicator = table._files[file]
+          indicator = table.fieldMap[indicator] || indicator
+          await table.loadCSVFile(indicator, `${dirPath}/${file}`, [...columns, indicator])
+        }
+        await table.dropPrimaryIndex()
+        // TODO: create plain, single column, indexes for elements of the key with a sufficient cardinality, e.g. >= 100;
+        // SELECT COUNT(DISTINCT gender) FROM population_age$geo$gender$year_2018122701;
+      }
+    }
+    return this;
   }
 
   async updateFromDirectory (dirPath, incrementally = false) {
