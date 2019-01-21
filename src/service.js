@@ -16,6 +16,11 @@ const api = new Router() // routes for the main API
 //  prefix: '/datasets'
 // })
 
+api.get('/loaderio-3ca287be03c603428fe74ca6695dde27.txt', async (ctx,next) => {
+  ctx.type = 'text/plain'
+  ctx.body = 'loaderio-3ca287be03c603428fe74ca6695dde27'
+})
+
 api.get('/', async (ctx, next) => {
   /*
    * List all (public) datasets that are currently available.
