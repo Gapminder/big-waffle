@@ -217,7 +217,7 @@ class DataSource extends (Dataset) {
         console.error(err)
         connection.end()
       })
-      .on('end', () => connection.end())
+      .on('end', () => connection.end().then(() => console.log(`Closed connection`)))
     const textStream = stream.pipe(new RecordPrinter(values, start))
     return textStream
   }

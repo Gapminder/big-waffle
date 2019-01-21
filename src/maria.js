@@ -11,7 +11,7 @@ const DB = MariaDB.createPool({
   user: env.DBUser,
   password: env.DBPassword,
   database: env.DBName,
-  connectionLimit: 500
+  connectionLimit: 10
 })
 DB.name = env.DBName
 

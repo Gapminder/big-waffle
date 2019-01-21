@@ -53,7 +53,9 @@ class HttpWorker {
   }
 }
 
-const numWorkers = Math.max(require('os').cpus().length - 3, 1)
+const numCPUs = require('os').cpus().length
+console.log(`This system has ${numCPUs} CPUs`)
+const numWorkers = Math.max(numCPUs - 1, 1)
 
 if (cluster.isMaster) {
   console.log(`Master ${process.pid} is running`)
