@@ -12,12 +12,34 @@ function getEnvironmentVariable(key, _default) {
   }
 }
 
-module.exports = {
-  LogErrors: getEnvironmentVariable('LOG_ERRORS', false),
-  MaintenanceMode: getEnvironmentVariable('MAINTENANCE_MODE', false),
-  HTTPPort: getEnvironmentVariable('HTTP_PORT', 80),
-  DBHost: getEnvironmentVariable('DB_HOST', 'localhost'),
-  DBUser: getEnvironmentVariable('DB_USER', 'gapminder'),
-  DBPassword: getEnvironmentVariable('DB_PWD', 'password'),
-  DBName: getEnvironmentVariable('DB_NAME', 'gapminder')
-};
+const envVars = [
+  {name: 'LogErrors', envVar: 'LOG_ERRORS', _default: false},
+  {name: 'MaintenanceMode', envVar: 'MAINTENANCE_MODE', _default: false},
+  {name: 'HTTPPort', envVar: 'HTTP_PORT', _default: 80},
+  {name: 'DBHost', envVar: 'DB_HOST', _default: 'localhost'},
+  {name: 'DBUser', envVar: 'DB_USER', _default: 'gapminder'},
+  {name: 'DBPassword', envVar: 'DB_PWD', _default: 'password'},
+  {name: 'DBName', envVar: 'DB_NAME', _default: 'gapminder'}
+]
+
+function envCopy () {
+  /*
+   * Return a plain object with the relevant process environment variables "as is".
+   * 
+   * This is useful when forking the main process.
+   */
+  return envVars.reduce((map, def) => {
+    const envValue = process.env[def.envVar]
+    if (envValue !== undefined) {
+      map[def.envVar] = envValue
+    }
+    return map
+  }, {})
+}
+
+module.exports = envVars.reduce((map, def) => {
+  map[def.name] = getEnvironmentVariable(def.envVar, def._default)
+  return map
+}, {})
+
+module.exports.envCopy = envCopy()
