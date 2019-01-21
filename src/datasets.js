@@ -310,12 +310,12 @@ class DataSource extends (Dataset) {
     }
     for (const key in this.datapoints) {
       const table = this.datapoints[key]
-      if (options.onlyParse === true ) {
-        table.optimizeSchema();
-        console.log(table._schema);
+      if (options.onlyParse === true) {
+        table.optimizeSchema()
+        console.log(table._schema)
         console.log(`Expected row size is ${table.estimatedRowSize} bytes`)
       } else {
-        table.optimizeSchema();
+        table.optimizeSchema()
         console.log(`Expected row size is ${table.estimatedRowSize} bytes`)
         const datapointsFieldMap = await table.createIn(DB, false)
         console.log(datapointsFieldMap)
@@ -333,7 +333,7 @@ class DataSource extends (Dataset) {
         // SELECT COUNT(DISTINCT gender) FROM population_age$geo$gender$year_2018122701;
       }
     }
-    return this;
+    return this
   }
 
   async updateFromDirectory (dirPath, incrementally = false) {
@@ -345,10 +345,10 @@ class DataSource extends (Dataset) {
   }
 }
 
-Dataset.remove = (name, version=undefined) => {
+Dataset.remove = (name, version = undefined) => {
   /*
    * Delete ALL tables for the dataset with the given name.
-   * 
+   *
    * If no version is given all the tables for all versions will be deleted.
    */
   console.log(`Deleting tables belonging to ${name}`)
