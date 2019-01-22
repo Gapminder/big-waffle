@@ -211,19 +211,22 @@ class DataSource extends (Dataset) {
     const table = this._getDatapointCollection(key)
     console.log(`DB has ${DB.idleConnections()} idle connections`)
     const sql = `SELECT ${values.join(', ')} FROM ${table.name};`
-    const connection = await DB.getConnection()
-    const recordStream = connection.queryStream({ sql, rowsAsArray: true })
-    const textStream = recordStream.pipe(new RecordPrinter(values, start)) // .pipe(process.stdout)
-    finished(textStream, (err) => {
-      if (err) {
-        console.error(err)
-      }
-      console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
-      return connection.end()
-        .then(() => console.log(`Released DB connection`),
-          () => console.log(`Released DB connection despite error`))
-    })
-    return textStream
+    // const connection = await DB.getConnection()
+    // const recordStream = connection.queryStream({ sql, rowsAsArray: true })
+    // const textStream = recordStream.pipe(new RecordPrinter(values, start)) // .pipe(process.stdout)
+    // finished(textStream, (err) => {
+    //  if (err) {
+    //    console.error(err)
+    //  }
+    //   console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
+    //  return connection.end()
+    //    .then(() => console.log(`Released DB connection`),
+    //      () => console.log(`Released DB connection despite error`))
+    // })
+    // return textStream
+    const results = await DB.query({ sql, rowsAsArray: true })
+    results.unshift(values)
+    return results
   }
 
   async revert () {
