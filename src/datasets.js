@@ -1,4 +1,4 @@
-const { Transform } = require('stream')
+const { Transform, finished } = require('stream')
 
 const JSONFile = require('jsonfile')
 const Moment = require('moment')
@@ -36,10 +36,10 @@ class RecordPrinter extends Transform {
           if (start) {
             console.log(`Processing request took ${Moment().diff(start)}ms.`)
           }
-          callback()
+          return callback()
         } catch (err) {
           console.error(err)
-          callback(err)
+          return callback(err)
         }
       }
     })
@@ -209,16 +209,20 @@ class DataSource extends (Dataset) {
 
   async queryStream (key, values, start = undefined) {
     const table = this._getDatapointCollection(key)
+    console.log(`DB has ${DB.idleConnections()} idle connections`)
     const sql = `SELECT ${values.join(', ')} FROM ${table.name};`
     const connection = await DB.getConnection()
-    const stream = connection.queryStream({ sql, rowsAsArray: true })
-    stream
-      .on('error', err => {
+    const recordStream = connection.queryStream({ sql, rowsAsArray: true })
+    const textStream = recordStream.pipe(new RecordPrinter(values, start)) // .pipe(process.stdout)
+    finished(textStream, (err) => {
+      if (err) {
         console.error(err)
-        connection.end()
-      })
-      .on('end', () => connection.end().then(() => console.log(`Closed connection`)))
-    const textStream = stream.pipe(new RecordPrinter(values, start))
+      }
+      console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
+      return connection.end()
+        .then(() => console.log(`Released DB connection`),
+          () => console.log(`Released DB connection despite error`))
+    })
     return textStream
   }
 
