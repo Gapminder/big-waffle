@@ -19,7 +19,8 @@ const envVars = [
   {name: 'DBHost', envVar: 'DB_HOST', _default: 'localhost'},
   {name: 'DBUser', envVar: 'DB_USER', _default: 'gapminder'},
   {name: 'DBPassword', envVar: 'DB_PWD', _default: 'password'},
-  {name: 'DBName', envVar: 'DB_NAME', _default: 'gapminder'}
+  {name: 'DBName', envVar: 'DB_NAME', _default: 'gapminder'},
+  {name: 'ReservedCPUs', envVar: 'RESERVED_CPUS', _default: 4}
 ]
 
 function envCopy () {

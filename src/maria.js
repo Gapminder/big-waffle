@@ -4,7 +4,6 @@
 const MariaDB = require('mariadb')
 
 const env = require('./env')
-console.log(JSON.stringify(env))
 
 const DB = MariaDB.createPool({
   host: env.DBHost,
