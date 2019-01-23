@@ -38,12 +38,17 @@ module.exports.DDFService = function () {
     let recordStream
 
     // make sure that clients that are not very patient don't cause problems
-    ctx.req.on('aborted', () => {
-      if (recordStream && recordStream.emit) {
-        recordStream.emit('end')
-        recordStream = undefined
-      }
-    })
+    for (const ev of ['aborted', 'close']) {
+      ctx.req.on(ev, () => {
+        if (typeof ctx.body.unpipe === 'function') {
+          ctx.body.unpipe(ctx.res)
+        }
+        if (recordStream && recordStream.emit) {
+          recordStream.emit('end')
+          recordStream = undefined
+        }
+      })
+    }
 
     // if the DB is too busy notify clients
     let timedOut = false
@@ -57,7 +62,7 @@ module.exports.DDFService = function () {
         ctx.body = `Sorry, the DDF service is too busy, try again later.`
         timedOut = true
       }
-    }, 2, ctx) // this timeout should be shorter than the DB pool connection timeout, which is 10 sec.
+    }, 5000, ctx) // this timeout should be shorter than the DB pool connection timeout, which is 10 sec.
 
     try {
       const dataset = new DataSource(ctx.params.dataset)
