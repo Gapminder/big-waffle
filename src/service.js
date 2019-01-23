@@ -6,6 +6,7 @@ const Compress = require('koa-compress')
 const Koa = require('koa')
 const Router = require('koa-router')
 const Moment = require('moment')
+const toobusy = require('toobusy-js')
 
 const { Dataset, DataSource, RecordPrinter } = require('./datasets')
 const { HTTPPort } = require('./env')
@@ -99,6 +100,17 @@ module.exports.DDFService = function () {
     }
   })
 
+  app.use(async (ctx, next) => {
+    /*
+     * Simple check to prevent from this worker to be flooded with requests.
+     * This as DDF queries usually take significant amounts of time to process
+     */
+    if (toobusy()) {
+      console.log(`Too busy!`)
+      ctx.throw(503, `Sorry server is too busy right now`)
+    }
+    await next()
+  })
   app.use(Compress())
   app.use(api.routes())
   app.listen(HTTPPort)

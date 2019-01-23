@@ -15,7 +15,8 @@
     "mariadb": "^2.0.2-rc",
     "moment": "^2.23.0",
     "through2": "^3.0.0",
-    "tmp": "0.0.33"
+    "tmp": "0.0.33",
+    "toobusy-js": "^0.5.1"
   },
   "devDependencies": {
     "eslint": "^5.11.1",
