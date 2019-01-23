@@ -214,11 +214,11 @@ class DataSource extends (Dataset) {
       if (err) {
         console.error(err)
       }
-       console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
-       return connection.end()
+      console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
+      return connection.end()
         .then(() => console.log(`Released DB connection`),
           () => console.log(`Released DB connection despite error`))
-     })
+    })
     return recordStream
     // const results = await DB.query({ sql, rowsAsArray: true })
     // results.unshift(values)

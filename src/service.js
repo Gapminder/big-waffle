@@ -41,25 +41,38 @@ module.exports.DDFService = function () {
     ctx.req.on('aborted', () => {
       if (recordStream && recordStream.emit) {
         recordStream.emit('end')
+        recordStream = undefined
       }
     })
 
     // if the DB is too busy notify clients
+    let timedOut = false
     const timeout = setTimeout(ctx => {
-      if (recordStream && recordStream.emit) {
-        recordStream.emit('end')
+      if (!ctx.headerSent) {
+        if (recordStream && recordStream.emit) {
+          recordStream.emit('end')
+        }
+        ctx.status = 503
+        ctx.type = 'text/plain'
+        ctx.body = `Sorry, the DDF service is too busy, try again later.`
+        timedOut = true
       }
-      ctx.throw(503, 'Sorry, the DDF Service is too busy, try later')
-    }, 9000, ctx) // this timeout should be shorter than the DB pool connection timeout, which is 10 sec.
+    }, 2, ctx) // this timeout should be shorter than the DB pool connection timeout, which is 10 sec.
 
     try {
       const dataset = new DataSource(ctx.params.dataset)
       await dataset.open()
       recordStream = await dataset.queryStream(key, values, start)
       clearTimeout(timeout)
+      if (ctx.headerSent) {
+        if (timedOut) {
+          console.log('DDF query request timed out')
+        }
+        return
+      }
       const printer = RecordPrinter(values)
       ctx.type = 'application/json'
-      if (ctx.res.aborted) {
+      if (ctx.req.aborted) {
         recordStream.emit('end') // releases the db connection!
       } else {
         ctx.res.on('finish', () => {
