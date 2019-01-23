@@ -1,51 +1,47 @@
-const { Transform, finished } = require('stream')
-
+const { finished } = require('stream')
 const JSONFile = require('jsonfile')
 const Moment = require('moment')
+const through2 = require('through2')
 
 const { DB } = require('./maria')
 const { Table } = require('./collections')
 
-class RecordPrinter extends Transform {
+function RecordPrinter (header) {
   /*
-   * Transforms a stream of records (Object instances) to a JSON array representation.
+   * Return a Transform stream that can pipe records (Object instances) to a stringified (textual) JSON array representation.
    */
-  constructor (header, start = undefined) {
-    super({
-      readableHighWaterMark: 48000,
-      writableHighWaterMark: 100,
-      writableObjectMode: true,
-      transform: (chunk, encoding, callback) => {
-        try {
-          if (!this._headerPushed) {
-            this._headerPushed = true
-            this.push(`[\n${JSON.stringify(header)}\n`)
-          }
-          this.push(`,${JSON.stringify(chunk)}`)
-          this._processed += 1
-          callback()
-        } catch (err) {
-          console.error(err)
-          callback(err)
+  const transform = through2(
+    {
+      readableHighWaterMark: 1000000,
+      writableHighWaterMark: 1000,
+      writableObjectMode: true
+    },
+    function (chunk, encoding, callback) { // need traditional 'function' structure here otherwise 'this', doesn't work.
+      try {
+        if (header && !this._headerPushed) {
+          this._headerPushed = true
+          this.push(`[\n${JSON.stringify(header)}\n`)
         }
-      },
-      flush: (callback) => {
-        try {
-          this.push(`\n]`)
-          console.log(`Query returned ${this._processed} records.`)
-          if (start) {
-            console.log(`Processing request took ${Moment().diff(start)}ms.`)
-          }
-          return callback()
-        } catch (err) {
-          console.error(err)
-          return callback(err)
-        }
+        this.push(`,${JSON.stringify(chunk)}`)
+        this.recordCounter += 1
+        callback()
+      } catch (err) {
+        console.error(err)
+        callback(err)
       }
-    })
-    this._headerPushed = false
-    this._processed = 0
-  }
+    },
+    function (callback) {
+      try {
+        this.push(`\n]`)
+        return callback()
+      } catch (err) {
+        console.error(err)
+        return callback(err)
+      }
+    }
+  )
+  transform.recordCounter = 0
+  return transform
 }
 
 class Dataset {
@@ -211,22 +207,22 @@ class DataSource extends (Dataset) {
     const table = this._getDatapointCollection(key)
     console.log(`DB has ${DB.idleConnections()} idle connections`)
     const sql = `SELECT ${values.join(', ')} FROM ${table.name};`
-    // const connection = await DB.getConnection()
-    // const recordStream = connection.queryStream({ sql, rowsAsArray: true })
+    const connection = await DB.getConnection()
+    const recordStream = connection.queryStream({ sql, rowsAsArray: true })
     // const textStream = recordStream.pipe(new RecordPrinter(values, start)) // .pipe(process.stdout)
-    // finished(textStream, (err) => {
-    //  if (err) {
-    //    console.error(err)
-    //  }
-    //   console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
-    //  return connection.end()
-    //    .then(() => console.log(`Released DB connection`),
-    //      () => console.log(`Released DB connection despite error`))
-    // })
-    // return textStream
-    const results = await DB.query({ sql, rowsAsArray: true })
-    results.unshift(values)
-    return results
+    finished(recordStream, (err) => {
+      if (err) {
+        console.error(err)
+      }
+       console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
+       return connection.end()
+        .then(() => console.log(`Released DB connection`),
+          () => console.log(`Released DB connection despite error`))
+     })
+    return recordStream
+    // const results = await DB.query({ sql, rowsAsArray: true })
+    // results.unshift(values)
+    // return results
   }
 
   async revert () {
@@ -396,5 +392,6 @@ DB.query(`CREATE TABLE datasets (name VARCHAR(100) NOT NULL, version CHAR(10), d
 
 Object.assign(exports, {
   Dataset,
-  DataSource
+  DataSource,
+  RecordPrinter
 })

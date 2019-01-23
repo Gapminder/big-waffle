@@ -14,6 +14,7 @@
     "lodash": "^4.17.11",
     "mariadb": "^2.0.2-rc",
     "moment": "^2.23.0",
+    "through2": "^3.0.0",
     "tmp": "0.0.33"
   },
   "devDependencies": {

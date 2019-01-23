@@ -7,7 +7,7 @@ const Koa = require('koa')
 const Router = require('koa-router')
 const Moment = require('moment')
 
-const { Dataset, DataSource } = require('./datasets')
+const { Dataset, DataSource, RecordPrinter } = require('./datasets')
 const { HTTPPort } = require('./env')
 
 module.exports.DDFService = function () {
@@ -35,11 +35,46 @@ module.exports.DDFService = function () {
     const key = ctx.query.key
     const values = ctx.query.values.split(',').map(v => v.trim())
     // TODO: parse and validate all of the params
-    const dataset = new DataSource(ctx.params.dataset)
-    await dataset.open()
-    const results = await dataset.queryStream(key, values, start)
-    ctx.type = 'application/json'
-    ctx.body = results
+    let recordStream
+
+    // make sure that clients that are not very patient don't cause problems
+    ctx.req.on('aborted', () => {
+      if (recordStream && recordStream.emit) {
+        recordStream.emit('end')
+      }
+    })
+
+    // if the DB is too busy notify clients
+    const timeout = setTimeout(ctx => {
+      if (recordStream && recordStream.emit) {
+        recordStream.emit('end')
+      }
+      ctx.throw(503, 'Sorry, the DDF Service is too busy, try later')
+    }, 9000, ctx) // this timeout should be shorter than the DB pool connection timeout, which is 10 sec.
+
+    try {
+      const dataset = new DataSource(ctx.params.dataset)
+      await dataset.open()
+      recordStream = await dataset.queryStream(key, values, start)
+      clearTimeout(timeout)
+      const printer = RecordPrinter(values)
+      ctx.type = 'application/json'
+      if (ctx.res.aborted) {
+        recordStream.emit('end') // releases the db connection!
+      } else {
+        ctx.res.on('finish', () => {
+          console.log(`Responded with ${printer.recordCounter} records`)
+          console.log(`Processed request in ${Moment().diff(start, 'milliseconds')}ms`)
+        })
+        ctx.body = recordStream.pipe(printer)
+      }
+    } catch (err) {
+      console.error(err)
+      if (recordStream && recordStream.emit) {
+        recordStream.emit('end')
+      }
+      ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
+    }
   })
 
   app.use(Compress())
