@@ -40,7 +40,7 @@ module.exports.DDFService = function () {
     // make sure that clients that are not very patient don't cause problems
     for (const ev of ['aborted', 'close']) {
       ctx.req.on(ev, () => {
-        if (typeof ctx.body.unpipe === 'function') {
+        if (ctx.body && typeof ctx.body.unpipe === 'function') {
           ctx.body.unpipe(ctx.res)
         }
         if (recordStream && recordStream.emit) {
@@ -87,9 +87,13 @@ module.exports.DDFService = function () {
         ctx.body = recordStream.pipe(printer)
       }
     } catch (err) {
-      console.error(err)
       if (recordStream && recordStream.emit) {
         recordStream.emit('end')
+      }
+      if (timedOut) {
+        console.log('DDF query request timed out')
+      } else {
+        console.error(err)
       }
       ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
     }
