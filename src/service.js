@@ -50,7 +50,7 @@ module.exports.DDFService = function () {
     ctx.body = datasets.map(ds => ds.name)
   })
 
-  api.get('/:dataset([a-z]+)', async (ctx, next) => {
+  api.get('/:dataset([_a-z]+)', async (ctx, next) => {
     const start = Moment()
     const key = ctx.query.key
     const values = ctx.query.values.split(',').map(v => v.trim())
