@@ -70,7 +70,7 @@ module.exports.DDFService = function () {
       await dataset.open()
       recordStream = await dataset.queryStream(key, values, start)
       if (ctx.headerSent || ctx.req.aborted) {
-        setImmediate(() => recordStream.destroy(new Error('Acquired DB connection too late'))) // releases the db connection!
+        recordStream.destroy(new Error('Acquired DB connection too late')) // releases the db connection!
       } else {
         const printer = new RecordPrinter(values)
         ctx.res.on('finish', () => {

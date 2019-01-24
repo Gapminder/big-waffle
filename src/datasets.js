@@ -217,12 +217,10 @@ class DataSource extends (Dataset) {
       if (err) {
         console.error(err)
       }
-      setImmediate(() => {
-        console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
-        connection.end()
-          .then(() => console.log(`Released DB connection`),
-            () => console.log(`Released DB connection despite error`))
-      })
+      console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
+      connection.end()
+        .then(() => console.log(`Released DB connection`),
+          () => console.log(`Released DB connection despite error`))
     })
     return recordStream
     // const results = await DB.query({ sql, rowsAsArray: true })
