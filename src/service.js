@@ -67,19 +67,27 @@ module.exports.DDFService = function () {
     }
 
     try {
-      console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+      // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
       const dataset = new DataSource(ctx.params.dataset)
       await dataset.open()
+
+      // grab a connection and release it first after a while, to test...
+      // const conn = await DB.getConnection()
+      // setTimeout((c) => c.end(), 15000, conn)
+      console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+
       recordStream = await dataset.queryStream(key, values, start)
       if (ctx.headerSent || ctx.req.aborted) {
         process.nextTick(() => recordStream.destroy(new Error('Acquired DB connection too late'))) // releases the db connection!
       } else {
         const printer = new RecordPrinter(values)
-        ctx.res.on('finish', () => {
-          console.log(`Responded with ${printer.recordCounter} records`)
-          console.log(`Processed request in ${Moment().diff(start, 'milliseconds')}ms`)
-        })
         // in order to better handle errors while streaming take direct control of the HTTP response
+        ctx.res.on('finish', () => {
+          process.nextTick(() => {
+            console.log(`Responded with ${printer.recordCounter} records`)
+            console.log(`Processed request in ${Moment().diff(start, 'milliseconds')}ms`)
+          })
+        })
         ctx.respond = false
         ctx.res.statusCode = 200
         ctx.res.setHeader('Content-Type', 'application/json')

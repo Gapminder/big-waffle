@@ -219,7 +219,7 @@ class DataSource extends (Dataset) {
       process.nextTick(() => {
         console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
         connection.end()
-          .then(() => console.log(`Released DB connection`),
+          .then(() => console.log(`Released DB connection. DB now has ${DB.idleConnections()} connections`),
             () => console.log(`Released DB connection despite error`))
       })
     })

@@ -12,7 +12,7 @@
     "koa-compress": "^3.0.0",
     "koa-router": "^7.4.0",
     "lodash": "^4.17.11",
-    "mariadb": "^2.0.2-rc",
+    "mariadb": "git+https://github.com/lokkilok/mariadb-connector-nodejs.git",
     "moment": "^2.23.0",
     "tmp": "0.0.33",
     "toobusy-js": "^0.5.1"
