@@ -208,7 +208,6 @@ class DataSource extends (Dataset) {
 
   async queryStream (key, values, start = undefined) {
     const table = this._getDatapointCollection(key)
-    console.log(`DB has ${DB.idleConnections()} idle connections`)
     const sql = `SELECT ${values.join(', ')} FROM ${table.name};`
     const connection = await DB.getConnection()
     const recordStream = connection.queryStream({ sql, rowsAsArray: true })
@@ -217,10 +216,12 @@ class DataSource extends (Dataset) {
       if (err) {
         console.error(err)
       }
-      console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
-      connection.end()
-        .then(() => console.log(`Released DB connection`),
-          () => console.log(`Released DB connection despite error`))
+      process.nextTick(() => {
+        console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
+        connection.end()
+          .then(() => console.log(`Released DB connection`),
+            () => console.log(`Released DB connection despite error`))
+      })
     })
     return recordStream
     // const results = await DB.query({ sql, rowsAsArray: true })

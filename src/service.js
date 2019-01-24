@@ -9,6 +9,7 @@ const Router = require('koa-router')
 const Moment = require('moment')
 const toobusy = require('toobusy-js')
 
+const { DB } = require('./maria')
 const { Dataset, DataSource, RecordPrinter } = require('./datasets')
 const { HTTPPort } = require('./env')
 
@@ -66,11 +67,12 @@ module.exports.DDFService = function () {
     }
 
     try {
+      console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
       const dataset = new DataSource(ctx.params.dataset)
       await dataset.open()
       recordStream = await dataset.queryStream(key, values, start)
       if (ctx.headerSent || ctx.req.aborted) {
-        recordStream.destroy(new Error('Acquired DB connection too late')) // releases the db connection!
+        process.nextTick(() => recordStream.destroy(new Error('Acquired DB connection too late'))) // releases the db connection!
       } else {
         const printer = new RecordPrinter(values)
         ctx.res.on('finish', () => {
@@ -79,6 +81,7 @@ module.exports.DDFService = function () {
         })
         // in order to better handle errors while streaming take direct control of the HTTP response
         ctx.respond = false
+        ctx.res.statusCode = 200
         ctx.res.setHeader('Content-Type', 'application/json')
         pipeline(recordStream, printer, ctx.res, (err) => {
           if (err) {
