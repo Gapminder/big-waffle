@@ -1,47 +1,50 @@
-const { finished } = require('stream')
+const { Transform, finished } = require('stream')
 const JSONFile = require('jsonfile')
 const Moment = require('moment')
-const through2 = require('through2')
 
 const { DB } = require('./maria')
 const { Table } = require('./collections')
 
-function RecordPrinter (header) {
-  /*
-   * Return a Transform stream that can pipe records (Object instances) to a stringified (textual) JSON array representation.
-   */
-  const transform = through2(
-    {
-      readableHighWaterMark: 1000000,
-      writableHighWaterMark: 1000,
-      writableObjectMode: true
-    },
-    function (chunk, encoding, callback) { // need traditional 'function' structure here otherwise 'this', doesn't work.
-      try {
-        if (header && !this._headerPushed) {
-          this._headerPushed = true
-          this.push(`[\n${JSON.stringify(header)}\n`)
-        }
-        this.push(`,${JSON.stringify(chunk)}`)
-        this.recordCounter += 1
-        callback()
-      } catch (err) {
-        console.error(err)
-        callback(err)
+class RecordPrinter extends Transform {
+  constructor (header) {
+    /*
+    * Return a Transform stream that can pipe records (Object instances) to a stringified (textual) JSON array representation.
+    */
+    super(
+      {
+        readableHighWaterMark: 1000000,
+        writableHighWaterMark: 1000,
+        writableObjectMode: true
       }
-    },
-    function (callback) {
-      try {
-        this.push(`\n]`)
-        return callback()
-      } catch (err) {
-        console.error(err)
-        return callback(err)
+    )
+    this.header = header
+    this.recordCounter = 0
+  }
+
+  _transform (chunk, encoding, callback) {
+    try {
+      if (this.header && !this._headerPushed) {
+        this._headerPushed = true
+        this.push(`[\n${JSON.stringify(this.header)}\n`)
       }
+      this.push(`,${JSON.stringify(chunk)}`)
+      this.recordCounter += 1
+      callback()
+    } catch (err) {
+      console.error(err)
+      callback(err)
     }
-  )
-  transform.recordCounter = 0
-  return transform
+  }
+
+  _flush (callback) {
+    try {
+      this.push(`\n]`)
+      return callback()
+    } catch (err) {
+      console.error(err)
+      return callback(err)
+    }
+  }
 }
 
 class Dataset {
@@ -214,10 +217,12 @@ class DataSource extends (Dataset) {
       if (err) {
         console.error(err)
       }
-      console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
-      return connection.end()
-        .then(() => console.log(`Released DB connection`),
-          () => console.log(`Released DB connection despite error`))
+      setImmediate(() => {
+        console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
+        connection.end()
+          .then(() => console.log(`Released DB connection`),
+            () => console.log(`Released DB connection despite error`))
+      })
     })
     return recordStream
     // const results = await DB.query({ sql, rowsAsArray: true })

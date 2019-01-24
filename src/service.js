@@ -2,6 +2,7 @@
  * Koa (HTTP) service to handle DDF requests.
  *
  */
+const { pipeline } = require('stream')
 const Compress = require('koa-compress')
 const Koa = require('koa')
 const Router = require('koa-router')
@@ -10,6 +11,24 @@ const toobusy = require('toobusy-js')
 
 const { Dataset, DataSource, RecordPrinter } = require('./datasets')
 const { HTTPPort } = require('./env')
+
+toobusy.maxLag(70)
+toobusy.interval(250)
+toobusy.onLag(currentLag => {
+  console.log(`Event loop lag ${currentLag}ms`)
+})
+
+function cleanUp (koaContext, aStream) {
+  /*
+   * Helper function to clean up a streaming response in unusual situations
+   */
+  if (koaContext.body && typeof koaContext.body.unpipe === 'function') {
+    koaContext.body.unpipe(koaContext.res)
+  }
+  if (aStream && aStream.emit) {
+    aStream.emit('end')
+  }
+}
 
 module.exports.DDFService = function () {
   const app = new Koa()
@@ -31,7 +50,7 @@ module.exports.DDFService = function () {
     ctx.body = datasets.map(ds => ds.name)
   })
 
-  api.get('/:dataset', async (ctx, next) => {
+  api.get('/:dataset([a-z]+)', async (ctx, next) => {
     const start = Moment()
     const key = ctx.query.key
     const values = ctx.query.values.split(',').map(v => v.trim())
@@ -41,62 +60,42 @@ module.exports.DDFService = function () {
     // make sure that clients that are not very patient don't cause problems
     for (const ev of ['aborted', 'close']) {
       ctx.req.on(ev, () => {
-        if (ctx.body && typeof ctx.body.unpipe === 'function') {
-          ctx.body.unpipe(ctx.res)
-        }
-        if (recordStream && recordStream.emit) {
-          recordStream.emit('end')
-          recordStream = undefined
-        }
+        cleanUp(ctx, recordStream)
+        recordStream = undefined
       })
     }
-
-    // if the DB is too busy notify clients
-    let timedOut = false
-    const timeout = setTimeout(ctx => {
-      if (!ctx.headerSent) {
-        if (recordStream && recordStream.emit) {
-          recordStream.emit('end')
-        }
-        ctx.status = 503
-        ctx.type = 'text/plain'
-        ctx.body = `Sorry, the DDF service is too busy, try again later.`
-        timedOut = true
-      }
-    }, 5000, ctx) // this timeout should be shorter than the DB pool connection timeout, which is 10 sec.
 
     try {
       const dataset = new DataSource(ctx.params.dataset)
       await dataset.open()
       recordStream = await dataset.queryStream(key, values, start)
-      clearTimeout(timeout)
-      if (ctx.headerSent) {
-        if (timedOut) {
-          console.log('DDF query request timed out')
-        }
-        return
-      }
-      const printer = RecordPrinter(values)
-      ctx.type = 'application/json'
-      if (ctx.req.aborted) {
-        recordStream.emit('end') // releases the db connection!
+      if (ctx.headerSent || ctx.req.aborted) {
+        setImmediate(() => recordStream.destroy(new Error('Acquired DB connection too late'))) // releases the db connection!
       } else {
+        const printer = new RecordPrinter(values)
         ctx.res.on('finish', () => {
           console.log(`Responded with ${printer.recordCounter} records`)
           console.log(`Processed request in ${Moment().diff(start, 'milliseconds')}ms`)
         })
-        ctx.body = recordStream.pipe(printer)
+        // in order to better handle errors while streaming take direct control of the HTTP response
+        ctx.respond = false
+        ctx.res.setHeader('Content-Type', 'application/json')
+        pipeline(recordStream, printer, ctx.res, (err) => {
+          if (err) {
+            console.error(err)
+          }
+        })
       }
     } catch (err) {
-      if (recordStream && recordStream.emit) {
-        recordStream.emit('end')
-      }
-      if (timedOut) {
+      cleanUp(ctx, recordStream)
+      ctx.respond = true
+      if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
         console.log('DDF query request timed out')
+        ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
       } else {
         console.error(err)
       }
-      ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
+      ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
     }
   })
 
