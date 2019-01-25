@@ -206,23 +206,30 @@ class DataSource extends (Dataset) {
     return this
   }
 
-  async queryStream (key, values, start = undefined) {
+  async queryStream (key, values, abortCheck = () => false, start = undefined) {
     const table = this._getDatapointCollection(key)
     const sql = `SELECT ${values.join(', ')} FROM ${table.name};`
     const connection = await DB.getConnection()
+
+    // we may have had to wait a long time to get the connection so check if we should abort
+    if (abortCheck()) {
+      connection.end()
+      return null
+    }
+
     const recordStream = connection.queryStream({ sql, rowsAsArray: true })
     // const textStream = recordStream.pipe(new RecordPrinter(values, start)) // .pipe(process.stdout)
     finished(recordStream, (err) => {
       if (err) {
         console.error(err)
       }
-      process.nextTick(() => {
+      // process.nextTick(() => {
         console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
         connection.end()
           .then(() => console.log(`Released DB connection. DB now has ${DB.idleConnections()} connections`),
             () => console.log(`Released DB connection despite error`))
       })
-    })
+  // })
     return recordStream
     // const results = await DB.query({ sql, rowsAsArray: true })
     // results.unshift(values)

@@ -19,18 +19,6 @@ toobusy.onLag(currentLag => {
   console.log(`Event loop lag ${currentLag}ms`)
 })
 
-function cleanUp (koaContext, aStream) {
-  /*
-   * Helper function to clean up a streaming response in unusual situations
-   */
-  if (koaContext.body && typeof koaContext.body.unpipe === 'function') {
-    koaContext.body.unpipe(koaContext.res)
-  }
-  if (aStream && aStream.emit) {
-    aStream.emit('end')
-  }
-}
-
 module.exports.DDFService = function () {
   const app = new Koa()
   const api = new Router() // routes for the main API
@@ -52,6 +40,7 @@ module.exports.DDFService = function () {
   })
 
   api.get('/:dataset([_a-z]+)', async (ctx, next) => {
+    console.log('Received DDF query')
     const start = Moment()
     const key = ctx.query.key
     const values = ctx.query.values.split(',').map(v => v.trim())
@@ -61,25 +50,35 @@ module.exports.DDFService = function () {
     // make sure that clients that are not very patient don't cause problems
     for (const ev of ['aborted', 'close']) {
       ctx.req.on(ev, () => {
-        cleanUp(ctx, recordStream)
-        recordStream = undefined
+        if (recordStream && recordStream.destroy) {
+          console.log(`Request unexpectedly closed. Start clean up...`)
+          recordStream.destroy(new Error('HTTP Request unexpectedly closed'))
+          recordStream = undefined
+        }
       })
     }
 
     try {
-      // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+      console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
       const dataset = new DataSource(ctx.params.dataset)
       await dataset.open()
+      if (ctx.headerSent || ctx.req.aborted) {
+        return
+      }
 
       // grab a connection and release it first after a while, to test...
-      // const conn = await DB.getConnection()
-      // setTimeout((c) => c.end(), 15000, conn)
-      console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+      // const conn1 = await DB.getConnection()
+      // setTimeout((c) => c.end(), 6000, conn1)
+      // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+      // const conn2 = await DB.getConnection()
+      // setTimeout((c) => c.end(), 4000, conn2)
+      // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+      // const conn3 = await DB.getConnection()
+      // setTimeout((c) => c.end(), 2000, conn3)
+      // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
 
-      recordStream = await dataset.queryStream(key, values, start)
-      if (ctx.headerSent || ctx.req.aborted) {
-        process.nextTick(() => recordStream.destroy(new Error('Acquired DB connection too late'))) // releases the db connection!
-      } else {
+      recordStream = await dataset.queryStream(key, values, () => ctx.headerSent || ctx.req.aborted, start)
+      if (!(ctx.headerSent || ctx.req.aborted)) {
         const printer = new RecordPrinter(values)
         // in order to better handle errors while streaming take direct control of the HTTP response
         ctx.res.on('finish', () => {
@@ -93,17 +92,19 @@ module.exports.DDFService = function () {
         ctx.res.setHeader('Content-Type', 'application/json')
         pipeline(recordStream, printer, ctx.res, (err) => {
           if (err) {
+            console.error(`piping error:`)
             console.error(err)
           }
         })
       }
     } catch (err) {
-      cleanUp(ctx, recordStream)
+      if (recordStream && recordStream.destroy) recordStream.destroy(err)
       ctx.respond = true
       if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
         console.log('DDF query request timed out')
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
       } else {
+        console.error('Unexpected error!')
         console.error(err)
       }
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
