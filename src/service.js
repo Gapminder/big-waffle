@@ -116,7 +116,7 @@ module.exports.DDFService = function () {
      * Simple check to prevent from this worker to be flooded with requests.
      * This as DDF queries usually take significant amounts of time to process
      */
-    if (toobusy()) {
+    if (toobusy() || DB.taskQueueSize() >= 5) {
       console.log(`Too busy!`)
       ctx.throw(503, `Sorry server is too busy right now`)
     }
