@@ -1,4 +1,4 @@
-const { Transform, finished } = require('stream')
+const { Transform } = require('stream')
 const JSONFile = require('jsonfile')
 const Moment = require('moment')
 
@@ -218,22 +218,17 @@ class DataSource extends (Dataset) {
     }
 
     const recordStream = connection.queryStream({ sql, rowsAsArray: true })
-    // const textStream = recordStream.pipe(new RecordPrinter(values, start)) // .pipe(process.stdout)
-    finished(recordStream, (err) => {
+    recordStream.cleanUp = (err) => {
+      delete recordStream.cleanUp
+      console.log('Starting to cleanup recordStream')
       if (err) {
-        console.error(err)
+        console.log(`because ${err.message}`)
       }
-      // process.nextTick(() => {
-        console.log(`Requesting to release connection ${err ? 'because of error' : ''}`)
-        connection.end()
-          .then(() => console.log(`Released DB connection. DB now has ${DB.idleConnections()} connections`),
-            () => console.log(`Released DB connection despite error`))
-      })
-  // })
+      // TODO: figure out why we need to use destroy() here...
+      connection.destroy() // turns out that once the connection has been used to stream it's often stuck, so best to discard it
+      console.log(`Connection ${connection.threadId} discarded.`)
+    }
     return recordStream
-    // const results = await DB.query({ sql, rowsAsArray: true })
-    // results.unshift(values)
-    // return results
   }
 
   async revert () {
@@ -370,16 +365,16 @@ Dataset.remove = (name, version = undefined) => {
     sql: `SHOW TABLES WHERE Tables_in_${DB.name} RLIKE '^${name}';`,
     rowsAsArray: true
   })
-  .then(tableNames => {
-    console.log(`About to delete ${tableNames.length} tables...`)
-    return Promise.all(tableNames.map(tableName => {
-      return DB.query(`DROP TABLE ${tableName};`)
-      .then(() => console.log(`Deleted ${tableName}`))
-    }))
-  })
-  .then(() => {
-    return DB.query(`DELETE FROM datasets WHERE name = '${name}';`)
-  })
+    .then(tableNames => {
+      console.log(`About to delete ${tableNames.length} tables...`)
+      return Promise.all(tableNames.map(tableName => {
+        return DB.query(`DROP TABLE ${tableName};`)
+          .then(() => console.log(`Deleted ${tableName}`))
+      }))
+    })
+    .then(() => {
+      return DB.query(`DELETE FROM datasets WHERE name = '${name}';`)
+    })
 }
 Dataset.all = async () => {
   return DB.query(`SELECT name, version FROM datasets;`)

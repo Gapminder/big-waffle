@@ -2,7 +2,7 @@
  * Koa (HTTP) service to handle DDF requests.
  *
  */
-const { pipeline } = require('stream')
+const zlib = require('zlib')
 const Compress = require('koa-compress')
 const Koa = require('koa')
 const Router = require('koa-router')
@@ -50,10 +50,8 @@ module.exports.DDFService = function () {
     // make sure that clients that are not very patient don't cause problems
     for (const ev of ['aborted', 'close']) {
       ctx.req.on(ev, () => {
-        if (recordStream && recordStream.destroy) {
-          console.log(`Request unexpectedly closed. Start clean up...`)
-          recordStream.destroy(new Error('HTTP Request unexpectedly closed'))
-          recordStream = undefined
+        if (recordStream && recordStream.cleanup) {
+          recordStream.cleanUp(new Error('HTTP Request unexpectedly closed'))
         }
       })
     }
@@ -71,35 +69,15 @@ module.exports.DDFService = function () {
       // setTimeout((c) => c.end(), 6000, conn1)
       // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
       // const conn2 = await DB.getConnection()
-      // setTimeout((c) => c.end(), 4000, conn2)
+      // setTimeout((c) => c.end(), 3900, conn2)
       // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
       // const conn3 = await DB.getConnection()
       // setTimeout((c) => c.end(), 2000, conn3)
       // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
 
       recordStream = await dataset.queryStream(key, values, () => ctx.headerSent || ctx.req.aborted, start)
-      if (!(ctx.headerSent || ctx.req.aborted)) {
-        const printer = new RecordPrinter(values)
-        // in order to better handle errors while streaming take direct control of the HTTP response
-        ctx.res.on('finish', () => {
-          process.nextTick(() => {
-            console.log(`Responded with ${printer.recordCounter} records`)
-            console.log(`Processed request in ${Moment().diff(start, 'milliseconds')}ms`)
-          })
-        })
-        ctx.respond = false
-        ctx.res.statusCode = 200
-        ctx.res.setHeader('Content-Type', 'application/json')
-        pipeline(recordStream, printer, ctx.res, (err) => {
-          if (err) {
-            console.error(`piping error:`)
-            console.error(err)
-          }
-        })
-      }
     } catch (err) {
-      if (recordStream && recordStream.destroy) recordStream.destroy(err)
-      ctx.respond = true
+      if (recordStream && recordStream.cleanUp) recordStream.cleanUp(err)
       if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
         console.log('DDF query request timed out')
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
@@ -108,6 +86,35 @@ module.exports.DDFService = function () {
         console.error(err)
       }
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
+    }
+    if (recordStream) {
+      const printer = new RecordPrinter(values)
+      // ctx.respond = false
+      // ctx.res.setHeader('Content-Type', 'application/json')
+      // const pipe = [recordStream, printer]
+      // const encoding = ctx.acceptsEncodings('gzip', 'deflate', 'identity')
+      // if (compressors[encoding]) {
+      //   console.log(`Encoding response with ${encoding}`)
+      //   pipe.push(compressors[encoding]())
+      //   ctx.res.setHeader('Content-Encoding', encoding)
+      // }
+      // pipe.push(ctx.res)
+      // ctx.res.statusCode = 200
+      // pipeline(...pipe, (err) => {
+      //   recordStream.cleanUp(err)
+      //   console.log(`Responded with ${printer.recordCounter} records`)
+      // })
+      // recordStream.pipe(printer).pipe(process.stdout)
+      printer._destroy = (err) => {
+        recordStream.cleanUp(err)
+        console.log(`Responded with ${printer.recordCounter} records`)
+      }
+      ctx.status = 200
+      ctx.setType = 'application/json'
+      ctx.compress = ctx.acceptsEncodings('gzip', 'deflate') !== false
+      ctx.body = recordStream.pipe(printer)
+    } else {
+      ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
     }
   })
 
@@ -122,7 +129,7 @@ module.exports.DDFService = function () {
     }
     await next()
   })
-  app.use(Compress())
+  app.use(Compress({ level: zlib.constants.Z_BEST_SPEED }))
   app.use(api.routes())
   app.listen(HTTPPort)
 }
