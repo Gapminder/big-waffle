@@ -42,8 +42,9 @@ module.exports.DDFService = function () {
   api.get('/:dataset([_a-z]+)', async (ctx, next) => {
     console.log('Received DDF query')
     const start = Moment()
-    const key = ctx.query.key
-    const values = ctx.query.values.split(',').map(v => v.trim())
+    const query = JSON.parse(decodeURIComponent(ctx.querystring))
+    const key = query.select.key.join('$')
+    const values = [...query.select.key, ...query.select.value.map(v => v.trim())]
     // TODO: parse and validate all of the params
     let recordStream
 
@@ -129,6 +130,11 @@ module.exports.DDFService = function () {
     }
     await next()
   })
+
+  app.use(require('koa2-cors')({
+    origin: '*',
+    allowMethods: ['GET', 'HEAD', 'OPTIONS']
+  }))
   app.use(Compress({ level: zlib.constants.Z_BEST_SPEED }))
   app.use(api.routes())
   app.listen(HTTPPort)

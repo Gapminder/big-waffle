@@ -217,18 +217,28 @@ class DataSource extends (Dataset) {
       return null
     }
 
-    const recordStream = connection.queryStream({ sql, rowsAsArray: true })
-    recordStream.cleanUp = (err) => {
-      delete recordStream.cleanUp
-      console.log('Starting to cleanup recordStream')
-      if (err) {
-        console.log(`because ${err.message}`)
+    return new Promise((resolve, reject) => {
+      const recordStream = connection.queryStream({ sql, rowsAsArray: true })
+      recordStream.cleanUp = (err) => {
+        delete recordStream.cleanUp
+        console.log('Starting to cleanup recordStream')
+        if (err) {
+          console.log(`because ${err.message}`)
+        }
+        // TODO: figure out why we need to use destroy() here...
+        connection.destroy() // turns out that once the connection has been used to stream it's often stuck, so best to discard it
+        console.log(`Connection ${connection.threadId} discarded.`)
       }
-      // TODO: figure out why we need to use destroy() here...
-      connection.destroy() // turns out that once the connection has been used to stream it's often stuck, so best to discard it
-      console.log(`Connection ${connection.threadId} discarded.`)
-    }
-    return recordStream
+      recordStream.once('data', data => {
+        recordStream.pause()
+        recordStream.unshift(data)
+        resolve(recordStream)
+      })
+      recordStream.on('error', err => {
+        process.nextTick((err) => recordStream.cleanUp(err), err)
+        reject(err)
+      })
+    })
   }
 
   async revert () {
