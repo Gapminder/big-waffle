@@ -379,7 +379,7 @@ END;`
     /* CREATE TABLE aid_given_percent_of_gni (geo CHAR(3) NOT NULL, time INT NOT NULL,
      * aid_given_percent_of_gni DOUBLE)
      * engine=CONNECT table_type=CSV file_name='/Users/robert/Projects/Gapminder/ddf--gapminder--systema_globalis/ddf--datapoints--aid_given_percent_of_gni--by--geo--time.csv'
-     * header=1 sep_char=',';
+     * header=1 sep_char=',' quoted=1;
      */
     const tmpTableName = `TT${Crypto.createHash('md5').update(path).digest('hex')}`
     const csvHeader = await firstline(path)
@@ -396,7 +396,8 @@ END;`
       }
       return `${statement} ${columnName} ${type},`
     }, '')
-    let sql = `CREATE TABLE ${tmpTableName} (${columnDefs.slice(0, -1)}) engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${separator}';`
+    let sql = `CREATE TABLE ${tmpTableName} (${columnDefs.slice(0, -1)}) 
+    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${separator}' quoted=1;`
     console.log(sql)
     const conn = await this.getConnection()
     await conn.query(sql)
