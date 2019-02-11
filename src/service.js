@@ -10,7 +10,7 @@ const Moment = require('moment')
 const toobusy = require('toobusy-js')
 
 const { DB } = require('./maria')
-const { Dataset, DataSource, RecordPrinter } = require('./datasets')
+const { Dataset, Query, RecordPrinter } = require('./ddf')
 const { HTTPPort } = require('./env')
 
 toobusy.maxLag(70)
@@ -42,10 +42,15 @@ module.exports.DDFService = function () {
   api.get('/:dataset([_a-z]+)', async (ctx, next) => {
     console.log('Received DDF query')
     const start = Moment()
-    const query = JSON.parse(decodeURIComponent(ctx.querystring))
-    const key = query.select.key.join('$')
-    const values = [...query.select.key, ...query.select.value.map(v => v.trim())]
-    // TODO: parse and validate all of the params
+
+    let ddfQuery
+    try {
+      ddfQuery = new Query(JSON.parse(decodeURIComponent(ctx.querystring)))
+    } catch (err) {
+      console.error(err)
+      ctx.throw(400, err.message)
+    }
+
     let recordStream
 
     // make sure that clients that are not very patient don't cause problems
@@ -59,24 +64,12 @@ module.exports.DDFService = function () {
 
     try {
       console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      const dataset = new DataSource(ctx.params.dataset)
+      const dataset = new Dataset(ctx.params.dataset)
       await dataset.open()
       if (ctx.headerSent || ctx.req.aborted) {
         return
       }
-
-      // grab a connection and release it first after a while, to test...
-      // const conn1 = await DB.getConnection()
-      // setTimeout((c) => c.end(), 6000, conn1)
-      // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      // const conn2 = await DB.getConnection()
-      // setTimeout((c) => c.end(), 3900, conn2)
-      // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      // const conn3 = await DB.getConnection()
-      // setTimeout((c) => c.end(), 2000, conn3)
-      // console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-
-      recordStream = await dataset.queryStream(key, values, () => ctx.headerSent || ctx.req.aborted, start)
+      recordStream = await dataset.queryStream(ddfQuery, () => ctx.headerSent || ctx.req.aborted, start)
     } catch (err) {
       if (recordStream && recordStream.cleanUp) recordStream.cleanUp(err)
       if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
@@ -89,25 +82,9 @@ module.exports.DDFService = function () {
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
     }
     if (recordStream) {
-      const printer = new RecordPrinter(values)
-      // ctx.respond = false
-      // ctx.res.setHeader('Content-Type', 'application/json')
-      // const pipe = [recordStream, printer]
-      // const encoding = ctx.acceptsEncodings('gzip', 'deflate', 'identity')
-      // if (compressors[encoding]) {
-      //   console.log(`Encoding response with ${encoding}`)
-      //   pipe.push(compressors[encoding]())
-      //   ctx.res.setHeader('Content-Encoding', encoding)
-      // }
-      // pipe.push(ctx.res)
-      // ctx.res.statusCode = 200
-      // pipeline(...pipe, (err) => {
-      //   recordStream.cleanUp(err)
-      //   console.log(`Responded with ${printer.recordCounter} records`)
-      // })
-      // recordStream.pipe(printer).pipe(process.stdout)
+      const printer = new RecordPrinter(ddfQuery)
       printer._destroy = (err) => {
-        recordStream.cleanUp(err)
+        if (recordStream.cleanUp) recordStream.cleanUp(err)
         console.log(`Responded with ${printer.recordCounter} records`)
       }
       ctx.status = 200
@@ -126,7 +103,7 @@ module.exports.DDFService = function () {
      */
     if (toobusy() || DB.taskQueueSize() >= 5) {
       console.log(`Too busy!`)
-      ctx.throw(503, `Sorry server is too busy right now`)
+      ctx.throw(503, `Sorry, the DDF Service is too busy, try again later`)
     }
     await next()
   })

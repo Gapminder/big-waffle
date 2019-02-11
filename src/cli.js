@@ -3,11 +3,11 @@ const { ArgumentParser } = require('argparse')
 const Moment = require('moment')
 
 const { DB } = require('./maria')
-const { Dataset, DataSource } = require('./datasets')
+const { Dataset } = require('./ddf/datasets')
 
 function load (name, dirPath, options) {
-  const startTime = Moment.utc();
-  const sg = new DataSource(name)
+  const startTime = Moment.utc()
+  const sg = new Dataset(name)
   return sg.open()
     .then(async function (ds) {
       if (options.replace !== true) {
@@ -43,7 +43,7 @@ loadCmd.addArgument(
   }
 )
 loadCmd.addArgument(
-  ['--only-parse'],     // this will be 'only_parse' in the parsed arguments!
+  ['--only-parse'], // this will be 'only_parse' in the parsed arguments!
   {
     action: 'storeTrue',
     help: 'Does not actually load the data, but parses all data and prints the proposed schema'
@@ -75,18 +75,17 @@ deleteCmd.addArgument(
 async function run () {
   const args = parser.parseArgs()
   if (args.command === 'load') {
-    return load(args.dataset, resolve(args.directory), {onlyParse: args.only_parse})
+    return load(args.dataset, resolve(args.directory), { onlyParse: args.only_parse, replace: args.replace })
   } else if (args.command === 'delete') {
     return Dataset.remove(args.dataset)
   } else {
     parser.printUsage()
-    return
   }
 }
 
 run()
-.then(res => process.exit(0))
-.catch(err => {
-  console.error(err)
-  process.exit(1)
-})
+  .then(res => process.exit(0))
+  .catch(err => {
+    console.error(err)
+    process.exit(1)
+  })
