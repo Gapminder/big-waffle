@@ -68,8 +68,8 @@ class RecordProcessor extends Writable {
 }
 
 class Collection {
-  constructor (name) {
-    this.name = name
+  constructor (nameOrObject) {
+    this.name = nameOrObject.name || nameOrObject
     this.keys = new Set()
   }
 }
@@ -78,8 +78,11 @@ class Table extends Collection {
   /*
    * A Collection that is implemented as table for a relational database.
    */
-  constructor (name, mappedColumns = {}) {
-    super(name)
+  constructor (nameOrObject, mappedColumns = {}) {
+    super(nameOrObject)
+    if (nameOrObject.name) {
+      Object.assign(this, nameOrObject)
+    }
     if (mappedColumns) {
       this._columnNames = Object.assign({}, mappedColumns)
     }
@@ -97,6 +100,10 @@ class Table extends Collection {
   get mappedColumns () {
     // Return a copy of the column name mapping
     return Object.assign({}, this._columnNames)
+  }
+
+  set mappedColumns (obj) {
+    this._columnNames = obj
   }
 
   toJSON () {

@@ -33,6 +33,21 @@ class Query {
     if (typeof this.from !== 'string') {
       throw QuerySyntaxError.MissingSelect(this)
     }
+    if (this.order_by) {
+      if (this.order_by instanceof Array !== true) {
+        throw QuerySyntaxError.WrongOrderBy(this)
+      }
+      const normalizedOrderBy = []
+      for (const elem of this.order_by) {
+        const field = typeof elem === 'string' ? elem : Object.keys(elem)[0]
+        const direction = typeof elem === 'string' ? 'asc' : elem[field]
+        if (['asc', 'desc'].includes(direction) !== true) {
+          throw QuerySyntaxError.WrongOrderBy(this)
+        }
+        normalizedOrderBy.push({ [field]: direction })
+      }
+      this.order_by = normalizedOrderBy
+    }
   }
 
   get header () {

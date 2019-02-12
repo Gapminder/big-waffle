@@ -13,6 +13,9 @@ class DDFSchema {
     this.datapoints = {}
     if (obj) {
       Object.assign(this, obj)
+      if (obj.domains) { // this should be done last
+        this.domains = obj.domains
+      }
     }
   }
 
@@ -83,6 +86,7 @@ class DDFSchema {
 
   set domains (map) {
     // Re-compute the domain mapping
+    this._domains = undefined
     return this.domains
   }
 
@@ -184,13 +188,47 @@ class DDFSchema {
     }
     Object.values(tables).forEach(def => {
       def.entityKeys = [...new Set(def.entityKeys)]
-      def.resources = [...new Set(def.resources)]
+      def.resources = [...new Set(def.resources)] // TODO: find a way to use only the most specific resource
     })
     return Object.values(tables)
   }
 
+  sqlFor (ddfQuery) {
+    if (!this[ddfQuery.from]) {
+      throw QueryError.NotSupported()
+    }
+    // replace key entries that refer to entities to corresponding domains
+    const entityKeys = {}
+    const filters = []
+    for (const k of ddfQuery.select.key) {
+      const domain = this.domains[k]
+      if (domain) {
+        entityKeys[k] = domain // e.g. "country" => "geo"
+        filters.push(`is__${k.toLowerCase()} IS TRUE`)
+      }
+    }
+    const key = ddfQuery.select.key.map(k => entityKeys[k] || k)
+    const table = this.tableFor(ddfQuery.from, key)
+    if (!table) {
+      throw QueryError.NotSupported()
+    }
+    const mappedColumns = table.mappedColumns
+    const columns = [...key, ...ddfQuery.select.value].map(col => mappedColumns[col] || col)
+    // TODO: build join(s)
+    const where = filters.length > 0 ? ` WHERE ${filters.join('AND ')}` : ''
+    let order = ''
+    if (ddfQuery.order_by) {
+      const fields = ddfQuery.order_by.map(entry => { // entry is an object like {time: 'asc'}
+        const ordering = Object.entries(entry)[0] // ordering is an Array ['time', 'asc']
+        return `${mappedColumns[ordering[0]] || ordering[0]} ${ordering[1].toUpperCase()}`
+      })
+      order = ` ORDER BY ${fields.join(', ')}`
+    }
+    return `SELECT ${columns.join(', ')} FROM ${table.name}${where}${order};`
+  }
+
   tableFor (kind = 'entities', key = []) {
-    const tableKey = key.map(k => this.domains[k] || k).join('$')
+    const tableKey = key.map(k => this.domains[k] || k).sort().join('$')
     const def = this[kind][tableKey]
     const tableOrArgs = def && def.table ? def.table : null
     if (!tableOrArgs) {
@@ -389,30 +427,6 @@ class Dataset {
     return this
   }
 
-  _sql (ddfQuery) {
-    if (!this.schema[ddfQuery.from]) {
-      throw QueryError.NotSupported()
-    }
-    // replace key entries that refer to entities to corresponding domains
-    const entityKeys = {}
-    const filters = []
-    for (const k of ddfQuery.select.key) {
-      const domain = this.schema.domains[k]
-      if (domain) {
-        entityKeys[k] = domain // e.g. "country" => "geo"
-        filters.push(`is__${k.toLowerCase()} IS TRUE`)
-      }
-    }
-    const key = ddfQuery.select.key.map(k => entityKeys[k] || k)
-    const table = this.schema[ddfQuery.from][key.join('$')]
-    if (!table) {
-      throw QueryError.NotSupported()
-    }
-    const columns = [...key, ...ddfQuery.select.value].map(col => table.fieldMap[col] || col)
-    const where = filters.length > 0 ? `WHERE ${filters.join('AND ')}` : ''
-    return `SELECT ${columns.join(', ')} FROM ${table.name}${where};`
-  }
-
   async queryStream (ddfQuery, abortCheck = () => false, start = undefined) {
     /*
      * response for {select: {key: ['key', 'value'], value: []}, from: 'concepts.schema'} should be an array with the column names
@@ -434,7 +448,7 @@ class Dataset {
       return this.schema.queryStream(ddfQuery)
     }
 
-    const sql = this._sql(ddfQuery)
+    const sql = this.schema.sqlFor(ddfQuery)
     const connection = await DB.getConnection()
 
     // we may have had to wait a long time to get the connection so check if we should abort
