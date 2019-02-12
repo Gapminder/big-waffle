@@ -90,7 +90,7 @@ module.exports.DDFService = function () {
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
     }
     if (recordStream) {
-      const printer = new RecordPrinter(ddfQuery)
+      const printer = new RecordPrinter(ddfQuery, ddfQuery.isForData)
       printer._destroy = (err) => {
         if (recordStream.cleanUp) recordStream.cleanUp(err)
         console.log(`Responded with ${printer.recordCounter} records`)

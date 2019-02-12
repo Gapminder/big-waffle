@@ -62,10 +62,14 @@ class Query {
     const re = /([a-z]+)\.schema/
     return re.test(this.from)
   }
+
+  get isForData () {
+    return this.from === 'datapoints'
+  }
 }
 
 class RecordPrinter extends Transform {
-  constructor (query) {
+  constructor (query, filterNullRecords = false) {
     /*
     * Return a Transform stream that can pipe records (Object instances) to a stringified (textual) JSON array representation.
     */
@@ -78,16 +82,31 @@ class RecordPrinter extends Transform {
     )
     this.query = query
     this.recordCounter = 0
+    if (filterNullRecords) {
+      this._firstValueIndex = query.select.key.length
+      this.filterNullRecords = true
+    }
   }
 
-  _transform (chunk, encoding, callback) {
+  _transform (record, encoding, callback) {
     try {
       if (this.query.header && !this._headerPushed) {
         this._headerPushed = true
         this.push(`[\n${JSON.stringify(this.query.header)}\n`)
       }
-      this.push(`,${JSON.stringify(chunk)}`)
-      this.recordCounter += 1
+      if (this.filterNullRecords) {
+        // don't push a record that only contains null values
+        for (let idx = this._firstValueIndex; idx < record.length; idx++) {
+          if (record[idx]) {
+            this.push(`,${JSON.stringify(record)}`)
+            this.recordCounter += 1
+            break
+          }
+        }
+      } else {
+        this.push(`,${JSON.stringify(record)}`)
+        this.recordCounter += 1
+      }
       callback()
     } catch (err) {
       console.error(err)
