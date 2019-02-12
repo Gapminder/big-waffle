@@ -31,6 +31,26 @@ const subparsers = parser.addSubparsers({
   title: 'commands',
   dest: 'command'
 })
+const deleteCmd = subparsers.addParser('delete', {
+  help: `Deletes a dataset with all its associated tables`
+})
+deleteCmd.addArgument(
+  'dataset',
+  {
+    help: 'The name of the dataset'
+  }
+)
+const listCmd = subparsers.addParser('list', {
+  help: `List datasets and versions. Give a dataset name to only see the versions of that dataset.`
+})
+listCmd.addArgument(
+  'dataset',
+  {
+    defaultValue: undefined,
+    nargs: '?',
+    help: 'The name of the dataset'
+  }
+)
 const loadCmd = subparsers.addParser('load', {
   help: 'Loads a dataset from a directory with CSV files'
 })
@@ -62,13 +82,19 @@ loadCmd.addArgument(
     help: 'The name of the dataset'
   }
 )
-const deleteCmd = subparsers.addParser('delete', {
-  help: `Deletes a dataset with all its associated tables`
+const makeDefaultCmd = subparsers.addParser('make-default', {
+  help: 'Make the given version of a given dataset the default version'
 })
-deleteCmd.addArgument(
+makeDefaultCmd.addArgument(
   'dataset',
   {
     help: 'The name of the dataset'
+  }
+)
+makeDefaultCmd.addArgument(
+  'version',
+  {
+    help: 'The version of the dataset that should be the default'
   }
 )
 
@@ -78,6 +104,19 @@ async function run () {
     return load(args.dataset, resolve(args.directory), { onlyParse: args.only_parse, replace: args.replace })
   } else if (args.command === 'delete') {
     return Dataset.remove(args.dataset)
+  } else if (args.command === 'list') {
+    const versions = await Dataset.all(args.dataset)
+    if (versions && versions.length > 0) {
+      for (const version of versions) {
+        console.log(`${version.name}.${version.version}${version.is__default ? '*' : ''}`)
+      }
+    } else {
+      const named = args.dataset ? `named '${args.dataset}' ` : ''
+      console.log(`No datasets ${named}found.`)
+    }
+    return null
+  } else if (args.command === 'make-default') {
+    return Dataset.makeDefaultVersion(args.dataset, args.version)
   } else {
     parser.printUsage()
   }

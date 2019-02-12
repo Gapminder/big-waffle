@@ -406,7 +406,7 @@ class Dataset {
       if (this.version) {
         sql += ` AND version = '${this.version}'`
       } else {
-        sql += ` ORDER BY version DESC`
+        sql += ` ORDER BY is__default DESC, version DESC`
       }
 
       const docs = await DB.query(sql)
@@ -593,39 +593,86 @@ class Dataset {
 
   }
 
-  static remove (name, version = undefined) {
+  static async remove (name, version = undefined) {
     /*
     * Delete ALL tables for the dataset with the given name.
     *
-    * If no version is given all the tables for all versions will be deleted.
+    * If the version is given as 'all', the tables for all versions will be deleted!
+    * If no version is given the default version will be deleted. And if no default
+    * version exists, nothing will be deleted.
     */
-    console.log(`Deleting tables belonging to ${name}`)
-    return DB.query({
-      sql: `SHOW TABLES WHERE Tables_in_${DB.name} RLIKE '^${name}';`,
-      rowsAsArray: true
-    })
-      .then(tableNames => {
-        console.log(`About to delete ${tableNames.length} tables...`)
-        return Promise.all(tableNames.map(tableName => {
-          return DB.query(`DROP TABLE ${tableName};`)
-            .then(() => console.log(`Deleted ${tableName}`))
-        }))
+    let conn, tableRegEx
+    const filter = [`name = '${name}'`]
+    try {
+      conn = await DB.getConnection()
+      let msg = `Deleting tables belonging to ${name}`
+      if (version && version.toLowerCase() === 'all') {
+        tableRegEx = `^${name}`
+        msg += ` (ALL versions)`
+      } else if (version === undefined) {
+        // get the default version
+        const defaultVersions = await conn.query(`SELECT version FROM datasets WHERE name = '${name}' AND is__default IS TRUE`)
+        if (defaultVersions.length !== 1) {
+          throw new Error(`Could not determine default version for ${name}`)
+        }
+        version = defaultVersions[0].version
+      }
+      if (version) {
+        filter.push(`version = '${version}'`)
+        tableRegEx = `^${name}.+${version}$`
+        msg += `.${version}`
+      }
+      console.log(msg)
+      const tableNames = conn.query({
+        sql: `SHOW TABLES WHERE Tables_in_${DB.name} RLIKE '${tableRegEx}';`,
+        rowsAsArray: true
       })
-      .then(() => {
-        return DB.query(`DELETE FROM datasets WHERE name = '${name}';`)
-      })
+      console.log(`About to delete ${tableNames.length} tables...`)
+      await Promise.all(tableNames.map(tableName => {
+        return conn.query(`DROP TABLE ${tableName};`)
+          .then(() => console.log(`Deleted ${tableName}`))
+      }))
+      await conn.query(`DELETE FROM datasets WHERE ${filter.join(' AND')};`)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      if (conn.end) conn.end()
+    }
   }
 
-  static async all () {
-    return DB.query(`SELECT name, version FROM datasets;`)
+  static async makeDefaultVersion (name, version) {
+    let conn
+    try {
+      conn = await DB.getConnection()
+      // Unset any default version
+      await conn.query(`UPDATE datasets SET is__default = FALSE WHERE name = '${name}';`)
+      // Set the given version to be the default
+      await conn.query(`UPDATE datasets SET is__default = TRUE WHERE name = '${name}' AND version = '${version}';`)
+      const defaultVersions = await conn.query(`
+        SELECT name, version FROM datasets 
+        WHERE name = '${name}' AND version = '${version}';`)
+      if (defaultVersions.length !== 1) {
+        throw new Error(`Default version for ${name} could not be set to ${version}! Check database!`)
+      }
+      console.log(`Default version for ${defaultVersions[0].name} is now ${defaultVersions[0].version}`)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      if (conn.end) conn.end()
+    }
+  }
+
+  static async all (name = undefined) {
+    const filter = name ? ` WHERE name = '${name}'` : ''
+    return DB.query(`SELECT name, version, is__default FROM datasets${filter} ORDER BY name ASC, is__default DESC, version DESC;`)
   }
 }
 
 /*
- * Create the necessary tables.
+ * Create the necessary table(s).
  */
-DB.query(`CREATE TABLE datasets (name VARCHAR(100) NOT NULL, version CHAR(10), definition JSON);`)
-  .then(() => {
+DB.query(`CREATE TABLE datasets (name VARCHAR(100) NOT NULL, version CHAR(10), is__default BOOLEAN DEFAULT FALSE, definition JSON);`)
+  .then(() => { // TODO: would be cool to have a CONSTRAINT that would ensure only one version of a dataset can be marked as default
     console.log(`Created new datasets table`)
   })
   .catch(err => {

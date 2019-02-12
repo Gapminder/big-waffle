@@ -39,13 +39,15 @@ module.exports.DDFService = function () {
     ctx.body = datasets.map(ds => ds.name)
   })
 
-  api.get('/:dataset([_a-z]+)', async (ctx, next) => {
+  api.get('/:dataset([_a-z]+)/:version([0-9]+)?', async (ctx, next) => {
     console.log('Received DDF query')
     const start = Moment()
-
+    const datasetVersion = ctx.params.version || ctx.cookies.get(`${ctx.params.dataset}_version`)
     let ddfQuery
     try {
-      ddfQuery = new Query(JSON.parse(decodeURIComponent(ctx.querystring)))
+      const json = JSON.parse(decodeURIComponent(ctx.querystring))
+      console.log(`Processing ${JSON.stringify(json)}`)
+      ddfQuery = new Query(json)
     } catch (err) {
       console.error(err)
       ctx.throw(400, err.message)
@@ -64,8 +66,14 @@ module.exports.DDFService = function () {
 
     try {
       console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      const dataset = new Dataset(ctx.params.dataset)
+      const dataset = new Dataset(ctx.params.dataset, datasetVersion)
       await dataset.open()
+      if (!datasetVersion) {
+        // save the used, default, version in a session cookie
+        ctx.cookies.set(`${dataset.name}_version`, dataset.version) // a session cookie is the default
+      } else if (ctx.params.version && ctx.cookies.get(`${dataset.name}_version`)) {
+        ctx.cookies.set(`${dataset.name}_version`, undefined) // explicit version was asked for, delete the cookie
+      }
       if (ctx.headerSent || ctx.req.aborted) {
         return
       }
