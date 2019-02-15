@@ -39,7 +39,7 @@ module.exports.DDFService = function () {
     ctx.body = datasets.map(ds => ds.name)
   })
 
-  api.get('/:dataset([_a-z]+)/:version([0-9]+)?', async (ctx, next) => {
+  api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)?', async (ctx, next) => {
     console.log('Received DDF query')
     const start = Moment()
     const datasetVersion = ctx.params.version || ctx.cookies.get(`${ctx.params.dataset}_version`)

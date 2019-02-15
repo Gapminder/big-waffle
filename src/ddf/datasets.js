@@ -204,7 +204,7 @@ class DDFSchema {
       const domain = this.domains[k]
       if (domain) {
         entityKeys[k] = domain // e.g. "country" => "geo"
-        filters.push(`is__${k.toLowerCase()} IS TRUE`)
+        filters.push({ [`is--${k.toLowerCase()}`]: 'IS TRUE' }) // this is standard SQL so ok to have here
       }
     }
     const key = ddfQuery.select.key.map(k => entityKeys[k] || k)
@@ -212,19 +212,11 @@ class DDFSchema {
     if (!table) {
       throw QueryError.NotSupported()
     }
-    const mappedColumns = table.mappedColumns
-    const columns = [...key, ...ddfQuery.select.value].map(col => mappedColumns[col] || col)
+    const projection = [...key, ...ddfQuery.select.value]
     // TODO: build join(s)
-    const where = filters.length > 0 ? ` WHERE ${filters.join('AND ')}` : ''
-    let order = ''
-    if (ddfQuery.order_by) {
-      const fields = ddfQuery.order_by.map(entry => { // entry is an object like {time: 'asc'}
-        const ordering = Object.entries(entry)[0] // ordering is an Array ['time', 'asc']
-        return `${mappedColumns[ordering[0]] || ordering[0]} ${ordering[1].toUpperCase()}`
-      })
-      order = ` ORDER BY ${fields.join(', ')}`
-    }
-    return `SELECT ${columns.join(', ')} FROM ${table.name}${where}${order};`
+    const joins = []
+    const sort = (ddfQuery.order_by || [])
+    return table.sqlFor({ projection, joins, filters, sort })
   }
 
   tableFor (kind = 'entities', key = []) {
@@ -517,7 +509,7 @@ class Dataset {
     if (options.onlyParse !== true) {
       for (const entityKey of ddfTable.entityKeys || []) {
         // the table is for multiple keys, that represent entity sets in the domain as indicated by *the* key
-        table.addColumn(`is__${entityKey}`, 'BOOLEAN')
+        table.addColumn(`is--${entityKey}`, 'BOOLEAN')
         // these columns are filled once the table has been loaded
       }
       try {
@@ -535,7 +527,7 @@ class Dataset {
               columns: []
             }
           }
-          joins[domain].columns.push(`is__${entityKey}`)
+          joins[domain].columns.push(`is--${entityKey}`)
           return joins
         }, {})
         for (const join of Object.values(joins)) {
@@ -568,6 +560,7 @@ class Dataset {
     // 1. Read concepts from file(s) and store in 'concepts' collection.
     const concepts = await this._createTableFor(this.schema.conceptsTableDefinition)
     // 2. Update the schema with mapping of entity sets to entity domains
+    // TODO: check that the domain of an entity set actually refers to a concept of type entity_domain!
     this.schema.ensureDomains(await DB.query(`SELECT concept AS name, domain FROM ${concepts.name} WHERE concept_type = 'entity_set';`))
     // 3. Create tables for each entity domain and load all files for that entity domain.
     for (const tableDef of this.schema.domainTableDefinitions) {
@@ -629,7 +622,7 @@ class Dataset {
       })
       console.log(`About to delete ${tableNames.length} tables...`)
       await Promise.all(tableNames.map(tableName => {
-        return conn.query(`DROP TABLE ${tableName};`)
+        return conn.query(`DROP TABLE \`${tableName}\`;`)
           .then(() => console.log(`Deleted ${tableName}`))
       }))
       await conn.query(`DELETE FROM datasets WHERE ${filter.join(' AND')};`)
@@ -671,6 +664,7 @@ class Dataset {
 /*
  * Create the necessary table(s).
  */
+// TODO: save record creation dates
 DB.query(`CREATE TABLE datasets (name VARCHAR(100) NOT NULL, version CHAR(10), is__default BOOLEAN DEFAULT FALSE, definition JSON);`)
   .then(() => { // TODO: would be cool to have a CONSTRAINT that would ensure only one version of a dataset can be marked as default
     console.log(`Created new datasets table`)

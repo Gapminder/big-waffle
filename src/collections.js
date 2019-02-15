@@ -8,6 +8,18 @@ const { sample, sampleSize } = require('lodash')
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms)) // helper generator for wait promises
 
+function quoted (arrayOrIdentifier) {
+  /*
+   * Return the given identifier, or array of identifers, backtick quoted.
+   * This ensures that the identifier(s) can be used for a table name, column name, index, etc.
+   */
+  if (arrayOrIdentifier instanceof Array) {
+    return arrayOrIdentifier.map(identifier => `\`${identifier}\``)
+  } else {
+    return `\`${arrayOrIdentifier}\``
+  }
+}
+
 function sqlSafe (value, quoteResultIfNeeded = false) {
   if (typeof value !== 'string') {
     return value
@@ -174,7 +186,7 @@ class Table extends Collection {
 
   async setPrimaryIndexTo (columns, database = undefined) {
     const mappedColumns = this._columns(columns)
-    let sql = `ALTER TABLE ${this.name} ADD PRIMARY KEY (${mappedColumns.join(' ,')});`
+    let sql = `ALTER TABLE \`${this.name}\` ADD PRIMARY KEY (${quoted(mappedColumns).join(' ,')});`
     console.log(sql)
     const conn = await this.getConnection(database)
     await conn.query(sql)
@@ -183,7 +195,7 @@ class Table extends Collection {
   }
 
   async dropPrimaryIndex (database = undefined) {
-    let sql = `ALTER TABLE ${this.name} DROP PRIMARY KEY;`
+    let sql = `ALTER TABLE \`${this.name}\` DROP PRIMARY KEY;`
     const conn = await this.getConnection(database)
     await conn.query(sql)
     return this
@@ -200,14 +212,14 @@ class Table extends Collection {
         delete this._schema[columnName]
       }
     }
-    let sql = `CREATE OR REPLACE TABLE ${this.name} (`
+    let sql = `CREATE OR REPLACE TABLE \`${this.name}\` (`
     sql = Object.keys(this._schema).reduce((statement, columnName) => {
       const def = this._schema[columnName]
       let type = def.sqlType
       if (type === `VARCHAR`) {
         type = `VARCHAR(${def.size})`
       }
-      return `${statement} ${columnName} ${type}${withIndexes ? def.index || '' : ''},`
+      return `${statement} \`${columnName}\` ${type}${withIndexes ? def.index || '' : ''},`
     }, sql)
     sql = `${sql.slice(0, -1)});`
     console.log(sql)
@@ -219,11 +231,29 @@ class Table extends Collection {
     for (const columnName of Object.keys(this._schema)) {
       const def = this._schema[columnName]
       if (def.index) {
-        const sql = `CREATE INDEX ${columnName}_idx ON ${this.name} (${columnName});`
+        const sql = `CREATE INDEX \`${columnName}_idx ON\` \`${this.name}\` (\`${columnName}\`);`
         console.log(sql)
         await (database || this._database).query(sql)
       }
     }
+  }
+
+  sqlFor (query = { projection: [], joins: [], filters: [], sort: [] }) {
+    const columns = quoted(this._columns(query.projection)).join(', ')
+    // TODO: build join(s)
+    const where = query.filters && query.filters.length > 0
+      ? ` WHERE ${query.filters.map(f => {
+        const spec = Object.entries(f)[0] // there should only be one entry
+        return `\`${this._column(spec[0])}\` ${spec[1]}`
+      }).join('AND ')}`
+      : ''
+    const order = query.sort && query.sort.length > 0
+      ? ` ORDER BY ${query.sort.map(f => {
+        const spec = Object.entries(f)[0] // there should only be one entry
+        return `\`${this._column(spec[0])}\` ${spec[1]}`
+      }).join('AND ')}`
+      : ''
+    return `SELECT ${columns} FROM \`${this.name}\`${where}${order};`
   }
 
   _prepareRecord (record, _columnNames = {}) {
@@ -235,11 +265,6 @@ class Table extends Collection {
       }
       if (_columnNames[field]) {
         preparedRecord[_columnNames[field]] = record[field]
-        delete preparedRecord[field]
-      } else if (field.match(/-/)) {
-        const newFieldName = field.replace(/-/g, '_')
-        this._columnNames[field] = _columnNames[field] = newFieldName
-        preparedRecord[newFieldName] = record[field]
         delete preparedRecord[field]
       }
     }
@@ -284,32 +309,32 @@ class Table extends Collection {
       }
 
       let condition = Object.keys(filter).reduce((sql, keyName) => {
-        return `${sql}${keyName}=${sqlSafe(filter[keyName], true)} AND `
+        return `${sql}\`${keyName}\`=${sqlSafe(filter[keyName], true)} AND `
       }, ``)
       condition = condition.slice(0, -5)
       let updates = Object.keys(sets).reduce((sql, columnName) => {
-        return `${sql}${columnName}=${sqlSafe(preparedRecord[columnName], true)}, `
+        return `${sql}\`${columnName}\`=${sqlSafe(preparedRecord[columnName], true)}, `
       }, ``)
       updates = updates.slice(0, -2)
       let values = Object.keys(preparedRecord).reduce((sql, columnName) => {
-        return `${sql}${columnName}=${sqlSafe(preparedRecord[columnName], true)}, `
+        return `${sql}\`${columnName}\`=${sqlSafe(preparedRecord[columnName], true)}, `
       }, ``)
       values = values.slice(0, -2)
       const sql = Object.keys(sets).length > 0 ? `
 BEGIN NOT ATOMIC
-SELECT COUNT(*) FROM ${this.name} WHERE ${condition} INTO @recordExists;
+SELECT COUNT(*) FROM \`${this.name}\` WHERE ${condition} INTO @recordExists;
 IF @recordExists > 0
 THEN
-  UPDATE ${this.name} SET ${updates} WHERE ${condition};
+  UPDATE \`${this.name}\` SET ${updates} WHERE ${condition};
 ELSE
-  INSERT INTO ${this.name} SET ${values};
+  INSERT INTO \`${this.name}\` SET ${values};
 END IF;
 END;`
         : `
 BEGIN NOT ATOMIC
-SELECT COUNT(*) FROM ${this.name} WHERE ${condition} INTO @recordExists;
+SELECT COUNT(*) FROM \`${this.name}\` WHERE ${condition} INTO @recordExists;
 IF @recordExists < 1 THEN
-  INSERT INTO ${this.name} SET ${values};
+  INSERT INTO \`${this.name}\` SET ${values};
 END IF;
 END;`
       return this.getConnection()
@@ -401,7 +426,7 @@ END;`
       if (type === `VARCHAR`) {
         type = `VARCHAR(${def.size})`
       }
-      return `${statement} ${columnName} ${type},`
+      return `${statement} \`${columnName}\` ${type},`
     }, '')
     let sql = `CREATE TABLE ${tmpTableName} (${columnDefs.slice(0, -1)}) 
     engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${separator}' quoted=1;`
@@ -413,10 +438,10 @@ END;`
       *   SELECT * FROM aid_given_percent_of_gni
       *   ON DUPLICATE KEY UPDATE dpstest.aid_percent = aid_given_percent_of_gni.aid_given_percent_of_gni;
       */
-    const updates = tableColumns.filter(c => !this.keys.has(c)).map(c => `${this.name}.${c} = ${tmpTableName}.${c}`)
+    const updates = tableColumns.filter(c => !this.keys.has(c)).map(c => `\`${this.name}\`.\`${c}\` = ${tmpTableName}.\`${c}\``)
     sql = `
-    INSERT INTO ${this.name} (${tableColumns.join(', ')})
-      SELECT ${csvColumns.join(', ')} FROM ${tmpTableName}
+    INSERT INTO \`${this.name}\` (${quoted(tableColumns).join(', ')})
+      SELECT ${quoted(csvColumns).join(', ')} FROM ${tmpTableName}
       ON DUPLICATE KEY UPDATE ${updates.join(', ')};`
     console.log(sql)
     await conn.query(sql)
@@ -439,11 +464,11 @@ END;`
   }
 
   async updateFromJoin (foreignTable, sharedColumn, columns) {
-    const updates = columns.map(c => `${this.name}.${this._column(c)} = ${foreignTable.name}.${foreignTable._column(c)}`)
+    const updates = columns.map(c => `\`${this.name}\`.\`${this._column(c)}\` = \`${foreignTable.name}\`.\`${foreignTable._column(c)}\``)
     const sql = `
-    UPDATE ${this.name}
-    LEFT JOIN ${foreignTable.name} 
-      ON ${this.name}.${this._column(sharedColumn)} = ${foreignTable.name}.${foreignTable._column(sharedColumn)}
+    UPDATE \`${this.name}\`
+    LEFT JOIN \`${foreignTable.name}\` 
+      ON \`${this.name}\`.\`${this._column(sharedColumn)}\` = \`${foreignTable.name}\`.\`${foreignTable._column(sharedColumn)}\` 
     SET ${updates.join(', ')}`
     console.log(sql)
     const conn = await this.getConnection()
