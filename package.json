@@ -5,14 +5,16 @@
   "scripts": {},
   "dependencies": {
     "argparse": "^1.0.10",
+    "bunyan": "^1.8.12",
     "csv-parse": "^4.1.0",
     "firstline": "^2.0.2",
     "jsonfile": "^5.0.0",
     "koa": "^2.6.2",
     "koa-compress": "^3.0.0",
     "koa-router": "^7.4.0",
+    "koa2-cors": "^2.0.6",
     "lodash": "^4.17.11",
-    "mariadb": "git+https://github.com/lokkilok/mariadb-connector-nodejs.git",
+    "mariadb": "^2.0.3",
     "moment": "^2.23.0",
     "tmp": "0.0.33",
     "toobusy-js": "^0.5.1"
