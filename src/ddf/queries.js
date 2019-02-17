@@ -92,21 +92,25 @@ class RecordPrinter extends Transform {
 
   _transform (record, encoding, callback) {
     try {
-      if (this.query.header && !this._headerPushed) {
-        this._headerPushed = true
-        this.push(`[\n${JSON.stringify(this.query.header)}\n`)
+      if (!this._preamblePushed) {
+        this._preamblePushed = true
+        this.push('{\n')
+        if (this.query.header) {
+          this.push(`"header":${JSON.stringify(this.query.header)},\n`)
+        }
+        this.push(`"rows": [\n`)
       }
       if (this.filterNullRecords) {
         // don't push a record that only contains null values
         for (let idx = this._firstValueIndex; idx < record.length; idx++) {
           if (record[idx]) {
-            this.push(`,${JSON.stringify(record)}`)
+            this.push(`${this.recordCounter ? ',' : ''}${JSON.stringify(record)}`)
             this.recordCounter += 1
             break
           }
         }
       } else {
-        this.push(`,${JSON.stringify(record)}`)
+        this.push(`${this.recordCounter ? ',' : ''}${JSON.stringify(record)}`)
         this.recordCounter += 1
       }
       callback()
@@ -119,6 +123,12 @@ class RecordPrinter extends Transform {
   _flush (callback) {
     try {
       this.push(`\n]`)
+      if (this._log) {
+        Object.keys(this._log).forEach(logLevel => {
+          this.push(`,"${logLevel}":${JSON.stringify(this._log[logLevel])}`)
+        })
+      }
+      this.push('}')
       return callback()
     } catch (err) {
       Log.error(err)
