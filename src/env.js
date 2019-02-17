@@ -13,7 +13,7 @@ function getEnvironmentVariable (key, _default) {
 }
 
 const envVars = [
-  { name: 'LogErrors', envVar: 'LOG_ERRORS', _default: false },
+  { name: 'LogLevel', envVar: 'LOG_LEVEL', _default: 'info' }, // one of 'trace', 'debug', 'info', 'warn', 'error', 'fatal'
   { name: 'MaintenanceMode', envVar: 'MAINTENANCE_MODE', _default: false },
   { name: 'HTTPPort', envVar: 'HTTP_PORT', _default: 80 },
   { name: 'DBHost', envVar: 'DB_HOST', _default: 'localhost' },

@@ -2,6 +2,8 @@ const { Readable, Transform } = require('stream')
 
 const { QuerySyntaxError } = require('./errors.js')
 
+const Log = require('../log')('queries')
+
 class Query {
   constructor (obj) {
     Object.assign(this, obj)
@@ -109,7 +111,7 @@ class RecordPrinter extends Transform {
       }
       callback()
     } catch (err) {
-      console.error(err)
+      Log.error(err)
       callback(err)
     }
   }
@@ -119,7 +121,7 @@ class RecordPrinter extends Transform {
       this.push(`\n]`)
       return callback()
     } catch (err) {
-      console.error(err)
+      Log.error(err)
       return callback(err)
     }
   }

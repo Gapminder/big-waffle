@@ -6,6 +6,8 @@ const CSVParser = require('csv-parse')
 const firstline = require('firstline')
 const { sample, sampleSize } = require('lodash')
 
+const Log = require('./log')('collections')
+
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms)) // helper generator for wait promises
 
 function quoted (arrayOrIdentifier) {
@@ -187,7 +189,7 @@ class Table extends Collection {
   async setPrimaryIndexTo (columns, database = undefined) {
     const mappedColumns = this._columns(columns)
     let sql = `ALTER TABLE \`${this.name}\` ADD PRIMARY KEY (${quoted(mappedColumns).join(' ,')});`
-    console.log(sql)
+    Log.debug(sql)
     const conn = await this.getConnection(database)
     await conn.query(sql)
     this.keys = new Set([...this.keys, ...mappedColumns])
@@ -222,7 +224,7 @@ class Table extends Collection {
       return `${statement} \`${columnName}\` ${type}${withIndexes ? def.index || '' : ''},`
     }, sql)
     sql = `${sql.slice(0, -1)});`
-    console.log(sql)
+    Log.debug(sql)
     const conn = await this.getConnection(database)
     await conn.query(sql)
   }
@@ -232,7 +234,7 @@ class Table extends Collection {
       const def = this._schema[columnName]
       if (def.index) {
         const sql = `CREATE INDEX \`${columnName}_idx ON\` \`${this.name}\` (\`${columnName}\`);`
-        console.log(sql)
+        Log.debug(sql)
         await (database || this._database).query(sql)
       }
     }
@@ -343,10 +345,10 @@ END;`
         })
         .catch(err => {
           if (err.code === 'ER_LOCK_DEADLOCK') {
-            console.log('deadlock occured going to retry in 500 ms')
+            Log.info('deadlock occured going to retry in 500 ms')
             return wait(500).then(() => this._connection.query(sql))
           }
-          console.error(err)
+          Log.error({ err, sql })
           if (this._connection) {
             this._connection.end()
             delete this._connection
@@ -354,7 +356,7 @@ END;`
           throw err
         })
     } catch (err) {
-      console.log(err)
+      Log.error(err)
       return err
     }
   }
@@ -372,7 +374,7 @@ END;`
       try {
         const recordLoader = new RecordProcessor(table, table._updateRecord, keyMap, 5)
         recordLoader.on('finish', () => {
-          console.log(`Finished loading ${path} into ${table.name}`)
+          Log.info(`Finished loading ${path} into ${table.name}`)
           resolve(table)
         })
         recordLoader.on('error', err => reject(err))
@@ -386,7 +388,7 @@ END;`
         parser.on('error', err => reject(err))
 
         const csvFile = FileSystem.createReadStream(path)
-        console.log(`Loading ${path} into ${table.name}...`)
+        Log.debug(`Loading ${path} into ${table.name}...`)
         csvFile.pipe(parser).pipe(recordLoader)
       } catch (err) {
         reject(err)
@@ -430,7 +432,7 @@ END;`
     }, '')
     let sql = `CREATE TABLE ${tmpTableName} (${columnDefs.slice(0, -1)}) 
     engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${separator}' quoted=1;`
-    console.log(sql)
+    Log.debug(sql)
     const conn = await this.getConnection()
     await conn.query(sql)
     // 2. Copy all records
@@ -443,12 +445,13 @@ END;`
     INSERT INTO \`${this.name}\` (${quoted(tableColumns).join(', ')})
       SELECT ${quoted(csvColumns).join(', ')} FROM ${tmpTableName}
       ON DUPLICATE KEY UPDATE ${updates.join(', ')};`
-    console.log(sql)
+    Log.debug(sql)
     await conn.query(sql)
     // 3. Delete the temporary table
     sql = `DROP TABLE ${tmpTableName}`
-    console.log(sql)
+    Log.debug(sql)
     await conn.query(sql)
+    Log.info(`Finished loading ${path} into ${this.name}`)
     return this
   }
 
@@ -470,7 +473,7 @@ END;`
     LEFT JOIN \`${foreignTable.name}\` 
       ON \`${this.name}\`.\`${this._column(sharedColumn)}\` = \`${foreignTable.name}\`.\`${foreignTable._column(sharedColumn)}\` 
     SET ${updates.join(', ')}`
-    console.log(sql)
+    Log.debug(sql)
     const conn = await this.getConnection()
     await conn.query(sql)
     return this
@@ -538,7 +541,7 @@ END;`
       try {
         const schemaComputer = new RecordProcessor(table, table._updateSchemaWith, keyMap)
         schemaComputer.on('finish', () => {
-          console.log(`Finished scan of ${path} for ${table.name}`)
+          Log.debug(`Finished scan of ${path} for ${table.name}`)
           resolve(table)
         })
         schemaComputer.on('error', err => reject(err))
@@ -552,8 +555,8 @@ END;`
         parser.on('error', err => reject(err))
 
         const csvFile = FileSystem.createReadStream(path)
-        console.log(`Scanning ${path} to update schema of ${table.name}`)
-        console.log(`using mapping: ${JSON.stringify(this._columnNames)}`)
+        Log.info(`Scanning ${path} to update schema of ${table.name}`)
+        Log.debug(`using mapping: ${JSON.stringify(this._columnNames)}`)
         csvFile.pipe(parser).pipe(schemaComputer)
       } catch (err) {
         reject(err)

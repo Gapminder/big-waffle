@@ -6,6 +6,8 @@ const { Table } = require('../collections')
 const { QueryError, SchemaError } = require('./errors')
 const { ArrayStream } = require('./queries')
 
+const Log = require('../log')('datasets')
+
 class DDFSchema {
   constructor (obj) {
     this.concepts = {}
@@ -326,7 +328,7 @@ class Dataset {
     } else if (/[0-9]{2}$/.test(this.version)) {
       let root = this.version.slice(0, -2)
       const minorVersion = Number.parseInt(this.version.slice(-2))
-      console.log(minorVersion)
+      Log.debug(minorVersion)
       let versionDate = Moment.utc(root, 'YYYYMMDD', true)
       if (versionDate.isValid()) {
         if (versionDate.isSameOrAfter(Moment.utc(), 'day')) {
@@ -371,11 +373,10 @@ class Dataset {
     }
     try {
       await DB.query(sql)
-      console.log(`${this._isNew ? 'Inserted' : 'Updated'} dataset ${this.name}.${this.version}`)
+      Log.info(`${this._isNew ? 'Inserted' : 'Updated'} dataset ${this.name}.${this.version}`)
       delete this._isNew
-    } catch (dbErr) {
-      console.log(sql)
-      console.error(dbErr)
+    } catch (err) {
+      Log.error({ err, sql })
     }
     return this
   }
@@ -406,7 +407,7 @@ class Dataset {
       if (doc) {
         this.version = doc.version
         this.initialize(JSON.parse(doc.definition))
-        console.log(`Loaded dataset ${this.name}.${this.version} from DB`)
+        Log.debug(`Loaded dataset ${this.name}.${this.version} from DB`)
         if (this._isNew) {
           this._isNew = false
         }
@@ -414,7 +415,7 @@ class Dataset {
         this._isNew = true
       }
     } catch (dbError) {
-      console.error(dbError)
+      Log.error(dbError)
     }
     return this
   }
@@ -453,12 +454,12 @@ class Dataset {
       const recordStream = connection.queryStream({ sql, rowsAsArray: true })
       recordStream.cleanUp = (err) => {
         delete recordStream.cleanUp
-        console.log('Starting to cleanup recordStream')
+        Log.debug('Starting to cleanup recordStream')
         if (err) {
-          console.log(`because ${err.message}`)
+          Log.debug(`because ${err.message}`)
         }
         connection.end().then(() => {
-          console.log(`Connection ${connection.threadId} released.`)
+          Log.debug(`Connection ${connection.threadId} released.`)
         })
       }
       recordStream.once('data', data => {
@@ -505,7 +506,7 @@ class Dataset {
     for (const file of Object.keys(files)) {
       await table.updateSchemaFromCSVFile(file, files[file])
     }
-    console.log(`Expected row size is ${table.estimatedRowSize} bytes`)
+    Log.info(`Expected row size is ${table.estimatedRowSize} bytes`)
     if (options.onlyParse !== true) {
       for (const entityKey of ddfTable.entityKeys || []) {
         // the table is for multiple keys, that represent entity sets in the domain as indicated by *the* key
@@ -535,7 +536,7 @@ class Dataset {
         }
         this.schema.setTable(ddfTable.kind, ddfTable.key, table)
       } catch (err) {
-        console.error(err)
+        Log.error(err)
         process.exit(1)
       } finally {
         table.cleanUp()
@@ -615,19 +616,19 @@ class Dataset {
         tableRegEx = `^${name}.+${version}$`
         msg += `.${version}`
       }
-      console.log(msg)
+      Log.info(msg)
       const tableNames = conn.query({
         sql: `SHOW TABLES WHERE Tables_in_${DB.name} RLIKE '${tableRegEx}';`,
         rowsAsArray: true
       })
-      console.log(`About to delete ${tableNames.length} tables...`)
+      Log.info(`About to delete ${tableNames.length} tables...`)
       await Promise.all(tableNames.map(tableName => {
         return conn.query(`DROP TABLE \`${tableName}\`;`)
-          .then(() => console.log(`Deleted ${tableName}`))
+          .then(() => Log.info(`Deleted ${tableName}`))
       }))
       await conn.query(`DELETE FROM datasets WHERE ${filter.join(' AND')};`)
     } catch (err) {
-      console.error(err)
+      Log.error(err)
     } finally {
       if (conn.end) conn.end()
     }
@@ -647,9 +648,9 @@ class Dataset {
       if (defaultVersions.length !== 1) {
         throw new Error(`Default version for ${name} could not be set to ${version}! Check database!`)
       }
-      console.log(`Default version for ${defaultVersions[0].name} is now ${defaultVersions[0].version}`)
+      Log.info(`Default version for ${defaultVersions[0].name} is now ${defaultVersions[0].version}`)
     } catch (err) {
-      console.error(err)
+      Log.error(err)
     } finally {
       if (conn.end) conn.end()
     }
@@ -667,13 +668,13 @@ class Dataset {
 // TODO: save record creation dates
 DB.query(`CREATE TABLE datasets (name VARCHAR(100) NOT NULL, version CHAR(10), is__default BOOLEAN DEFAULT FALSE, definition JSON);`)
   .then(() => { // TODO: would be cool to have a CONSTRAINT that would ensure only one version of a dataset can be marked as default
-    console.log(`Created new datasets table`)
+    Log.info(`Created new datasets table`)
   })
   .catch(err => {
     if (err.code === 'ER_TABLE_EXISTS_ERROR') {
-      console.log(`Datasets table found`)
+      Log.debug(`Datasets table found`)
     } else {
-      console.error(err)
+      Log.error(err)
       process.exit(1)
     }
   })

@@ -12,11 +12,16 @@ const toobusy = require('toobusy-js')
 const { DB } = require('./maria')
 const { Dataset, Query, RecordPrinter } = require('./ddf')
 const { HTTPPort } = require('./env')
+const Log = require('./log')('service')
 
-toobusy.maxLag(70)
+toobusy.maxLag(100)
 toobusy.interval(250)
 toobusy.onLag(currentLag => {
-  console.log(`Event loop lag ${currentLag}ms`)
+  if (currentLag > 200) {
+    Log.warn(`Event loop lag ${currentLag}ms`)
+  } else {
+    Log.info(`Event loop lag ${currentLag}ms`)
+  }
 })
 
 module.exports.DDFService = function () {
@@ -40,16 +45,16 @@ module.exports.DDFService = function () {
   })
 
   api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)?', async (ctx, next) => {
-    console.log('Received DDF query')
+    Log.debug('Received DDF query')
     const start = Moment()
     const datasetVersion = ctx.params.version || ctx.cookies.get(`${ctx.params.dataset}_version`)
     let ddfQuery
     try {
       const json = JSON.parse(decodeURIComponent(ctx.querystring))
-      console.log(`Processing ${JSON.stringify(json)}`)
+      Log.info(json)
       ddfQuery = new Query(json)
     } catch (err) {
-      console.error(err)
+      Log.error(err)
       ctx.throw(400, err.message)
     }
 
@@ -65,7 +70,7 @@ module.exports.DDFService = function () {
     }
 
     try {
-      console.log(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+      Log.info(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
       const dataset = new Dataset(ctx.params.dataset, datasetVersion)
       await dataset.open()
       if (!datasetVersion) {
@@ -81,11 +86,10 @@ module.exports.DDFService = function () {
     } catch (err) {
       if (recordStream && recordStream.cleanUp) recordStream.cleanUp(err)
       if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
-        console.log('DDF query request timed out')
+        Log.warn('DDF query request timed out')
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
       } else {
-        console.error('Unexpected error!')
-        console.error(err)
+        Log.error(err)
       }
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
     }
@@ -93,7 +97,7 @@ module.exports.DDFService = function () {
       const printer = new RecordPrinter(ddfQuery, ddfQuery.isForData)
       printer._destroy = (err) => {
         if (recordStream.cleanUp) recordStream.cleanUp(err)
-        console.log(`Responded with ${printer.recordCounter} records`)
+        Log.info(`Responded with ${printer.recordCounter} records`)
       }
       ctx.status = 200
       ctx.setType = 'application/json'
@@ -110,7 +114,7 @@ module.exports.DDFService = function () {
      * This as DDF queries usually take significant amounts of time to process
      */
     if (toobusy() || DB.taskQueueSize() >= 5) {
-      console.log(`Too busy!`)
+      Log.info(`Too busy!`)
       ctx.throw(503, `Sorry, the DDF Service is too busy, try again later`)
     }
     await next()
