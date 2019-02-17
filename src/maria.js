@@ -10,7 +10,7 @@ const DB = MariaDB.createPool({
   user: env.DBUser,
   password: env.DBPassword,
   database: env.DBName,
-  connectionLimit: 5,
+  connectionLimit: 10,
   acquireTimeout: 5000, // Keep this shorter than the typical timeout used on a client!
   noControlAfterUse: true // This allows for quick release after the connection has streamed results.
 })
