@@ -7,16 +7,16 @@ const Compress = require('koa-compress')
 const Koa = require('koa')
 const Router = require('koa-router')
 const Moment = require('moment')
-const toobusy = require('toobusy-js')
+const TooBusy = require('toobusy-js')
 
 const { DB } = require('./maria')
 const { Dataset, Query, RecordPrinter } = require('./ddf')
 const { HTTPPort } = require('./env')
 const Log = require('./log')('service')
 
-toobusy.maxLag(100)
-toobusy.interval(250)
-toobusy.onLag(currentLag => {
+TooBusy.maxLag(100)
+TooBusy.interval(250)
+TooBusy.onLag(currentLag => {
   if (currentLag > 200) {
     Log.warn(`Event loop lag ${currentLag}ms`)
   } else {
@@ -113,7 +113,7 @@ module.exports.DDFService = function () {
      * Simple check to prevent from this worker to be flooded with requests.
      * This as DDF queries usually take significant amounts of time to process
      */
-    if (toobusy() || DB.taskQueueSize() >= 5) {
+    if (TooBusy() || DB.taskQueueSize() >= 5) {
       Log.info(`Too busy!`)
       ctx.throw(503, `Sorry, the DDF Service is too busy, try again later`)
     }
