@@ -37,6 +37,12 @@ class QuerySyntaxError extends QueryError {
   static WrongOrderBy (query) {
     return new this(` Query 'order_by' is not acceptable`, 'QL_WRONG_ORDER_BY', query)
   }
+  static WrongJoin (query) {
+    return new this(` Query 'join' is not acceptable`, 'QL_WRONG_JOIN', query)
+  }
+  static WrongWhere (query) {
+    return new this(` Query 'where' is not acceptable`, 'QL_WRONG_WHERE', query)
+  }
 }
 
 class SchemaError extends Error {

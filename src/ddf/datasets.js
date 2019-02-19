@@ -3,7 +3,7 @@ const Moment = require('moment')
 
 const { DB } = require('../maria')
 const { Table } = require('../collections')
-const { QueryError, SchemaError } = require('./errors')
+const { QueryError, QuerySyntaxError, SchemaError } = require('./errors')
 const { ArrayStream } = require('./queries')
 
 const Log = require('../log')('datasets')
@@ -63,7 +63,7 @@ class DDFSchema {
     const re = /([a-z]+)\.schema/
     const fromClause = re.exec(ddfQuery.from)
     if (!fromClause) {
-      throw QueryError.WrongFrom(ddfQuery)
+      throw QuerySyntaxError.WrongFrom(ddfQuery)
     }
     return new ArrayStream(this._querySchema(fromClause[1]))
   }
@@ -195,6 +195,46 @@ class DDFSchema {
     return Object.values(tables)
   }
 
+  _addFilter (filters, filter, tableName = null) {
+    /*
+     * Retain the MongoDb syntax, but ensure canonical forms
+     */
+    for (const column in filter) {
+      if (['$and', '$or'].includes(column)) {
+        // maintain the nesting, i.e. recurse
+        const subFilters = filter[column].reduce((subFilters, f) => { // filter.$and MUST be an Array
+          this._addFilter(subFilters, f, tableName)
+          return subFilters
+        }, [])
+        if (subFilters.length > 0) {
+          filters.push({ [column]: subFilters })
+        }
+      } else {
+        const columnName = tableName ? `${tableName}.${column}` : column
+        let condition = filter[column] // condition is either an object, or one of boolean, number, string or "variable" like '$geo'
+        if (typeof condition === 'object') {
+          if (Object.keys(condition).length > 1) {
+            // make the implicit $and explicit
+            filters.push({ $and: Object.keys(condition).reduce((subFilters, operator) => {
+              subFilters.push({ [columnName]: { [operator]: condition[operator] } })
+              return subFilters
+            }, []) })
+          } else {
+            // TODO: check that property name is an operator, and value is valid for that operator etc.
+            filters.push({ [columnName]: condition })
+          }
+        } else if (typeof condition === 'string' && condition.startsWith('$')) {
+          // variable to bind a join, can be ignored as it is not really a filter
+          continue
+        } else {
+          // make the implicit $eq explicit
+          filters.push({ [columnName]: { $eq: condition } })
+        }
+      }
+    }
+    return filters
+  }
+
   sqlFor (ddfQuery) {
     if (!this[ddfQuery.from]) {
       throw QueryError.NotSupported()
@@ -206,7 +246,7 @@ class DDFSchema {
       const domain = this.domains[k]
       if (domain) {
         entityKeys[k] = domain // e.g. "country" => "geo"
-        filters.push({ [`is--${k.toLowerCase()}`]: 'IS TRUE' }) // this is standard SQL so ok to have here
+        filters.push({ [`is--${k.toLowerCase()}`]: { $eq: true } })
       }
     }
     const key = ddfQuery.select.key.map(k => entityKeys[k] || k)
@@ -215,9 +255,31 @@ class DDFSchema {
       throw QueryError.NotSupported()
     }
     const projection = [...key, ...ddfQuery.select.value]
-    // TODO: build join(s)
+
     const joins = []
+    for (const joinOn in (ddfQuery.join || {})) {
+      if (/^\$[_a-z0-9]+/.test(joinOn) !== true) {
+        throw QuerySyntaxError.WrongJoin(ddfQuery)
+      }
+      const joinSpec = ddfQuery.join[joinOn]
+      if (!joinSpec) {
+        throw QuerySyntaxError.WrongJoin(ddfQuery)
+      }
+      const foreignTable = this.tableFor('entities', typeof joinSpec.key === 'string' ? [joinSpec.key] : joinSpec.key)
+      if (!foreignTable) {
+        throw QuerySyntaxError.WrongJoin(ddfQuery)
+      }
+      this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
+      joins.push({
+        inner: foreignTable,
+        on: joinOn.slice(1)
+      })
+    }
+
+    this._addFilter(filters, ddfQuery.where || {})
+
     const sort = (ddfQuery.order_by || [])
+
     return table.sqlFor({ projection, joins, filters, sort })
   }
 
@@ -442,6 +504,7 @@ class Dataset {
     }
 
     const sql = this.schema.sqlFor(ddfQuery)
+    Log.debug(sql)
     const connection = await DB.getConnection()
 
     // we may have had to wait a long time to get the connection so check if we should abort

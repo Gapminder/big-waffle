@@ -10,15 +10,19 @@ const Log = require('./log')('collections')
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms)) // helper generator for wait promises
 
-function quoted (arrayOrIdentifier) {
+function quoted (arrayOrIdentifier, qualifier = null) {
   /*
    * Return the given identifier, or array of identifers, backtick quoted.
    * This ensures that the identifier(s) can be used for a table name, column name, index, etc.
+   *
+   * If a qualifier (string) is provided prefix all identifiers with the
+   * backtick quoted qualifier and a dot.
    */
+  const prefix = qualifier ? `\`${qualifier}\`.` : ''
   if (arrayOrIdentifier instanceof Array) {
-    return arrayOrIdentifier.map(identifier => `\`${identifier}\``)
+    return arrayOrIdentifier.map(identifier => `${prefix}\`${identifier}\``)
   } else {
-    return `\`${arrayOrIdentifier}\``
+    return `${prefix}\`${arrayOrIdentifier}\``
   }
 }
 
@@ -38,6 +42,22 @@ function sqlSafe (value, quoteResultIfNeeded = false) {
     return `'${safeValue}'`
   }
   return safeValue
+}
+
+const Conditions = {
+  $eq: (col, operand) => {
+    if (operand === true) {
+      return `${col} IS TRUE`
+    } else if (operand === false) {
+      return `${col} IS FALSE`
+    } else if (typeof operand === 'string') {
+      return `${col} = '${operand}'`
+    } else {
+      return `${col} = ${operand}`
+    }
+  },
+  $lt: (col, operand) => `${col} < ${operand}`,
+  $gt: (col, operand) => `${col} > ${operand}`
 }
 
 class RecordProcessor extends Writable {
@@ -240,14 +260,49 @@ class Table extends Collection {
     }
   }
 
+  _sqlForFilter (filter, foreignTables = {}) {
+    /*
+     * Add the SQL for one filter to the given sql.
+     *
+     * Filters can be nested in that case this function will recurse
+     */
+    const clauses = []
+    for (const column in filter) {
+      if (['$and', '$or'].includes(column)) {
+        const subClauses = []
+        for (const subFilter of filter[column]) {
+          subClauses.push(this._sqlForFilter(subFilter, foreignTables))
+        }
+        clauses.push(`(${subClauses.join(` ${column.slice(1).toUpperCase()}`)})`)
+      } else {
+        let qualifiedColumnName = column.split('.')
+        if (qualifiedColumnName.length > 1) {
+          qualifiedColumnName = quoted(foreignTables[qualifiedColumnName[0]]._column(qualifiedColumnName[1]), qualifiedColumnName[0])
+        } else {
+          qualifiedColumnName = quoted(this._column(column), this.name)
+        }
+        for (const operator in filter[column]) {
+          clauses.push(Conditions[operator](qualifiedColumnName, filter[column][operator]))
+        }
+      }
+      return clauses.join(` AND`)
+    }
+  }
+
   sqlFor (query = { projection: [], joins: [], filters: [], sort: [] }) {
-    const columns = quoted(this._columns(query.projection)).join(', ')
-    // TODO: build join(s)
+    const columns = quoted(this._columns(query.projection), this.name).join(', ')
+    const innerJoin = query.joins && query.joins.length > 0
+      ? query.joins.reduce((sql, join) => {
+        sql += `INNER JOIN \`${join.inner.name}\` ON ${quoted(this._column(join.on), this.name)}=${quoted(join.inner._column(join.on), join.inner.name)}`
+        return sql
+      }, ` `)
+      : ''
+    const foreignTables = (query.joins || []).reduce((tables, j) => {
+      tables[j.inner.name] = j.inner
+      return tables
+    }, {})
     const where = query.filters && query.filters.length > 0
-      ? ` WHERE ${query.filters.map(f => {
-        const spec = Object.entries(f)[0] // there should only be one entry
-        return `\`${this._column(spec[0])}\` ${spec[1]}`
-      }).join('AND ')}`
+      ? ` WHERE ${query.filters.map(filter => this._sqlForFilter(filter, foreignTables)).join(' AND')}`
       : ''
     const order = query.sort && query.sort.length > 0
       ? ` ORDER BY ${query.sort.map(f => {
@@ -255,7 +310,7 @@ class Table extends Collection {
         return `\`${this._column(spec[0])}\` ${spec[1]}`
       }).join('AND ')}`
       : ''
-    return `SELECT ${columns} FROM \`${this.name}\`${where}${order};`
+    return `SELECT ${columns} FROM \`${this.name}\`${innerJoin}${where}${order};`
   }
 
   _prepareRecord (record, _columnNames = {}) {
