@@ -7,6 +7,7 @@ const Compress = require('koa-compress')
 const Koa = require('koa')
 const Router = require('koa-router')
 const Moment = require('moment')
+const Urlon = require('urlon')
 const TooBusy = require('toobusy-js')
 
 const { DB } = require('./maria')
@@ -48,9 +49,13 @@ module.exports.DDFService = function () {
     Log.debug('Received DDF query')
     const start = Moment()
     const datasetVersion = ctx.params.version || ctx.cookies.get(`${ctx.params.dataset}_version`)
-    let ddfQuery
+    let ddfQuery, json
     try {
-      const json = JSON.parse(decodeURIComponent(ctx.querystring))
+      try {
+        json = Urlon.parse(decodeURIComponent(ctx.querystring)) // despite using urlon we still need to decode!
+      } catch (urlonError) {
+        json = JSON.parse(decodeURIComponent(ctx.querystring))
+      }
       Log.info(json)
       ddfQuery = new Query(json)
     } catch (err) {
