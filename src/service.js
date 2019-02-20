@@ -48,9 +48,12 @@ module.exports.DDFService = function () {
   api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)?', async (ctx, next) => {
     Log.debug('Received DDF query')
     const start = Moment()
-    const datasetVersion = ctx.params.version || ctx.cookies.get(`${ctx.params.dataset}_version`)
     let ddfQuery, json
+    let version = ctx.params.version
     try {
+      if (!(typeof ctx.querystring === 'string' && ctx.querystring.length > 10)) {
+        throw new Error('Request has no query')
+      }
       try {
         json = Urlon.parse(decodeURIComponent(ctx.querystring)) // despite using urlon we still need to decode!
       } catch (urlonError) {
@@ -60,7 +63,7 @@ module.exports.DDFService = function () {
       ddfQuery = new Query(json)
     } catch (err) {
       Log.error(err)
-      ctx.throw(400, err.message)
+      ctx.throw(400, err instanceof SyntaxError ? `Query is malformed: ${err.message}` : err.message)
     }
 
     let recordStream
@@ -76,21 +79,18 @@ module.exports.DDFService = function () {
 
     try {
       Log.info(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      const dataset = new Dataset(ctx.params.dataset, datasetVersion)
-      await dataset.open()
-      if (!datasetVersion) {
-        // save the used, default, version in a session cookie
-        ctx.cookies.set(`${dataset.name}_version`, dataset.version) // a session cookie is the default
-      } else if (ctx.params.version && ctx.cookies.get(`${dataset.name}_version`)) {
-        ctx.cookies.set(`${dataset.name}_version`, undefined) // explicit version was asked for, delete the cookie
-      }
+      const dataset = new Dataset(ctx.params.dataset, version)
+      await dataset.open(true)
       if (ctx.headerSent || ctx.req.aborted) {
         return
       }
+      version = dataset.version
       recordStream = await dataset.queryStream(ddfQuery, () => ctx.headerSent || ctx.req.aborted, start)
     } catch (err) {
       if (recordStream && recordStream.cleanUp) recordStream.cleanUp(err)
-      if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
+      if (err.code === 'DDF_DATASET_NOT_FOUND') {
+        ctx.throw(404, err.message)
+      } else if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
         Log.warn('DDF query request timed out')
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
       } else {
@@ -100,6 +100,7 @@ module.exports.DDFService = function () {
     }
     if (recordStream) {
       const printer = new RecordPrinter(ddfQuery, ddfQuery.isForData)
+      printer.datasetVersion = version // to ensure the HTTP response includes the actual version used to answer this query
       printer._destroy = (err) => {
         if (recordStream.cleanUp) recordStream.cleanUp(err)
         Log.info(`Responded with ${printer.recordCounter} records`)

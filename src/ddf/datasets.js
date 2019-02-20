@@ -455,29 +455,29 @@ class Dataset {
     return collection
   }
 
-  async open () {
-    try {
-      let sql = `SELECT name, version, definition FROM datasets WHERE name = '${this.name}'`
-      if (this.version) {
-        sql += ` AND version = '${this.version}'`
-      } else {
-        sql += ` ORDER BY is__default DESC, version DESC`
-      }
+  async open (mustExist = false) {
+    let sql = `SELECT name, version, definition FROM datasets WHERE name = '${this.name}'`
+    if (this.version) {
+      sql += ` AND version = '${this.version}'`
+    } else {
+      sql += ` ORDER BY is__default DESC, imported DESC` // if there is no default use the most recently imported version
+    }
 
-      const docs = await DB.query(sql)
-      const doc = docs && docs.length >= 1 ? docs[0] : undefined
-      if (doc) {
-        this.version = doc.version
-        this.initialize(JSON.parse(doc.definition))
-        Log.debug(`Loaded dataset ${this.name}.${this.version} from DB`)
-        if (this._isNew) {
-          this._isNew = false
-        }
-      } else {
-        this._isNew = true
+    const docs = await DB.query(sql)
+    const doc = docs && docs.length >= 1 ? docs[0] : undefined
+    if (doc) {
+      this.version = doc.version
+      this.initialize(JSON.parse(doc.definition))
+      Log.debug(`Loaded dataset ${this.name}.${this.version} from DB`)
+      if (this._isNew) {
+        this._isNew = false
       }
-    } catch (dbError) {
-      Log.error(dbError)
+    } else if (mustExist) {
+      const err = new Error(`Dataset "${this.name}${this.version ? `.${this.version}` : ''}" does not exist.`)
+      err.code = 'DDF_DATASET_NOT_FOUND'
+      throw err
+    } else {
+      this._isNew = true
     }
     return this
   }
@@ -729,7 +729,11 @@ class Dataset {
  * Create the necessary table(s).
  */
 // TODO: save record creation dates
-DB.query(`CREATE TABLE datasets (name VARCHAR(100) NOT NULL, version CHAR(10), is__default BOOLEAN DEFAULT FALSE, definition JSON);`)
+DB.query(`CREATE TABLE datasets (
+    name VARCHAR(100) NOT NULL, 
+    version CHAR(40), 
+    is__default BOOLEAN DEFAULT FALSE, definition JSON,
+    imported DATETIME DEFAULT CURRENT_TIMESTAMP);`)
   .then(() => { // TODO: would be cool to have a CONSTRAINT that would ensure only one version of a dataset can be marked as default
     Log.info(`Created new datasets table`)
   })

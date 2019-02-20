@@ -90,11 +90,18 @@ class RecordPrinter extends Transform {
     }
   }
 
+  set datasetVersion (version) {
+    this._version = version
+  }
+
   _transform (record, encoding, callback) {
     try {
       if (!this._preamblePushed) {
         this._preamblePushed = true
         this.push('{\n')
+        if (this._version) {
+          this.push(`"version":"${this._version}",\n`)
+        }
         if (this.query.header) {
           this.push(`"header":${JSON.stringify(this.query.header)},\n`)
         }
