@@ -44,6 +44,22 @@ class DDFSchema {
     return obj
   }
 
+  get tableNames () {
+    const tableNames = []
+    for (const kind of ['concepts', 'entities', 'datapoints']) {
+      for (const key in this[kind]) {
+        const def = this[kind][key]
+        if (def && def.table) {
+          const tableName = def.table.tableName || def.table.name
+          if (tableName) {
+            tableNames.push(tableName)
+          }
+        }
+      }
+    }
+    return tableNames
+  }
+
   _querySchema (kind = 'concepts') {
     /*
      * The ddfQuery should have a 'select: {key: ["key", "value"], value: []}'
@@ -169,7 +185,7 @@ class DDFSchema {
     for (const schemaKey in this.datapoints) {
       /* Keys in the same domain will be combined, e.g. ['country', 'time'] becomes ['geo', 'time']
        * and then the domain wide table will be enhanced with a column to filter for the entity set
-       * e.g. "is__country"
+       * e.g. "is--country"
        */
       const primaryKey = []
       const mappedEntities = []
@@ -642,12 +658,11 @@ class Dataset {
     return this
   }
 
-  async updateFromDirectory (dirPath, incrementally = false) {
+  get tableNames () {
     /*
-     * Create a new version of this dataset with the data in the given directory.
-     *
+     * Return a list of table names as used by this dataset. These are the names as used in the DB!
      */
-
+    return this.schema.tableNames
   }
 
   static async remove (name, version = undefined) {
@@ -658,14 +673,14 @@ class Dataset {
     * If no version is given the default version will be deleted. And if no default
     * version exists, nothing will be deleted.
     */
-    let conn, tableRegEx
-    const filter = [`name = '${name}'`]
+    let conn
+    const filters = [`name = '${name}'`]
     try {
       conn = await DB.getConnection()
       let msg = `Deleting tables belonging to ${name}`
-      if (version && version.toLowerCase() === 'all') {
-        tableRegEx = `^${name}`
+      if (version && version.toUpperCase() === '_ALL_') {
         msg += ` (ALL versions)`
+        version = null
       } else if (version === undefined) {
         // get the default version
         const defaultVersions = await conn.query(`SELECT version FROM datasets WHERE name = '${name}' AND is__default IS TRUE`)
@@ -675,21 +690,30 @@ class Dataset {
         version = defaultVersions[0].version
       }
       if (version) {
-        filter.push(`version = '${version}'`)
-        tableRegEx = `^${name}.+${version}$`
+        filters.push(`version = '${version}'`)
         msg += `.${version}`
       }
       Log.info(msg)
-      const tableNames = conn.query({
-        sql: `SHOW TABLES WHERE Tables_in_${DB.name} RLIKE '${tableRegEx}';`,
-        rowsAsArray: true
+      const datasets = await conn.query({
+        sql: `SELECT name, version, definition FROM datasets WHERE ${filters.join(' AND ')};`
       })
+      const tableNames = datasets.reduce((names, dsRecord) => {
+        const ds = new Dataset(dsRecord.name, dsRecord.version)
+        ds.initialize(JSON.parse(dsRecord.definition))
+        names.push(...ds.tableNames)
+        return names
+      }, [])
       Log.info(`About to delete ${tableNames.length} tables...`)
       await Promise.all(tableNames.map(tableName => {
         return conn.query(`DROP TABLE \`${tableName}\`;`)
           .then(() => Log.info(`Deleted ${tableName}`))
+          .catch(err => {
+            if (err.code !== 'ER_BAD_TABLE_ERROR') { // bad table means it doesn't exist
+              throw (err)
+            }
+          })
       }))
-      await conn.query(`DELETE FROM datasets WHERE ${filter.join(' AND')};`)
+      await conn.query(`DELETE FROM datasets WHERE ${filters.join(' AND ')};`)
     } catch (err) {
       Log.error(err)
     } finally {
@@ -727,11 +751,12 @@ class Dataset {
 
 /*
  * Create the necessary table(s).
+ *
+ * The length of 'version' is 40 char too allow for a full git hash
  */
-// TODO: save record creation dates
 DB.query(`CREATE TABLE datasets (
-    name VARCHAR(100) NOT NULL, 
-    version CHAR(40), 
+    name VARCHAR(255) NOT NULL, 
+    version VARCHAR(40), 
     is__default BOOLEAN DEFAULT FALSE, definition JSON,
     imported DATETIME DEFAULT CURRENT_TIMESTAMP);`)
   .then(() => { // TODO: would be cool to have a CONSTRAINT that would ensure only one version of a dataset can be marked as default

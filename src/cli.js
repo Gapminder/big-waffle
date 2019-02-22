@@ -5,14 +5,12 @@ const Moment = require('moment')
 const { DB } = require('./maria')
 const { Dataset } = require('./ddf/datasets')
 
-function load (name, dirPath, options) {
+function load (name, version, dirPath, options) {
   const startTime = Moment.utc()
-  const sg = new Dataset(name)
-  return sg.open()
+  const ds = new Dataset(name)
+  return ds.open()
     .then(async function (ds) {
-      if (options.replace !== true) {
-        ds.incrementVersion()
-      }
+      ds.incrementVersion(version) // assign a version string based upon the date
       await ds.loadFromDirectory(dirPath, options)
       console.log(`Loading ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`)
       if (options.onlyParse !== true) {
@@ -38,6 +36,12 @@ deleteCmd.addArgument(
   'dataset',
   {
     help: 'The name of the dataset'
+  }
+)
+deleteCmd.addArgument(
+  'version',
+  {
+    help: `The version of the dataset that should be deleted. "ALL" will delete all versions!`
   }
 )
 const listCmd = subparsers.addParser('list', {
@@ -70,16 +74,17 @@ loadCmd.addArgument(
   }
 )
 loadCmd.addArgument(
-  ['--replace'],
-  {
-    action: 'storeTrue',
-    help: 'Does not change the version of the dataset, so replaces the data of the current default version'
-  }
-)
-loadCmd.addArgument(
   'dataset',
   {
     help: 'The name of the dataset'
+  }
+)
+loadCmd.addArgument(
+  'version',
+  {
+    defaultValue: undefined,
+    nargs: '?',
+    help: 'A version string to label the loaded dataset with'
   }
 )
 const makeDefaultCmd = subparsers.addParser('make-default', {
@@ -101,9 +106,9 @@ makeDefaultCmd.addArgument(
 async function run () {
   const args = parser.parseArgs()
   if (args.command === 'load') {
-    return load(args.dataset, resolve(args.directory), { onlyParse: args.only_parse, replace: args.replace })
+    return load(args.dataset, args.version, resolve(args.directory), { onlyParse: args.only_parse, replace: args.replace })
   } else if (args.command === 'delete') {
-    return Dataset.remove(args.dataset)
+    return Dataset.remove(args.dataset, args.version)
   } else if (args.command === 'list') {
     const versions = await Dataset.all(args.dataset)
     if (versions && versions.length > 0) {

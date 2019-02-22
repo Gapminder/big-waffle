@@ -117,6 +117,10 @@ class Table extends Collection {
     if (nameOrObject.name) {
       Object.assign(this, nameOrObject)
     }
+    if (this.name && this.name.length > 64 && !this._tableName) {
+      // the name of the table in the DB can be only 64 chars!
+      this._tableName = `${this.name.slice(0, 24)}${Crypto.createHash('md5').update(this.name).digest('hex').slice(0, 40)}`
+    }
     if (mappedColumns) {
       this._columnNames = Object.assign({}, mappedColumns)
     }
@@ -129,6 +133,16 @@ class Table extends Collection {
 
   _columns (arrayOfSchemaNames) {
     return arrayOfSchemaNames.map(n => this._column(n))
+  }
+
+  get tableName () {
+    return this._tableName || this.name
+  }
+
+  set tableName (aStringOfMax64Chars) {
+    if (!this._tableName && (typeof aStringOfMax64Chars === 'string' && aStringOfMax64Chars.length <= 64)) {
+      this._tableName = aStringOfMax64Chars
+    }
   }
 
   get mappedColumns () {
@@ -146,6 +160,9 @@ class Table extends Collection {
      * can be saved in a collection.
      */
     const doc = { mappedColumns: this.mappedColumns }
+    if (this._tableName) {
+      doc.tableName = this.tableName
+    }
     for (const key in this) {
       if (key.startsWith('_') === false) {
         doc[key] = this[key]
@@ -208,7 +225,7 @@ class Table extends Collection {
 
   async setPrimaryIndexTo (columns, database = undefined) {
     const mappedColumns = this._columns(columns)
-    let sql = `ALTER TABLE \`${this.name}\` ADD PRIMARY KEY (${quoted(mappedColumns).join(' ,')});`
+    let sql = `ALTER TABLE \`${this.tableName}\` ADD PRIMARY KEY (${quoted(mappedColumns).join(' ,')});`
     Log.debug(sql)
     const conn = await this.getConnection(database)
     await conn.query(sql)
@@ -217,7 +234,7 @@ class Table extends Collection {
   }
 
   async dropPrimaryIndex (database = undefined) {
-    let sql = `ALTER TABLE \`${this.name}\` DROP PRIMARY KEY;`
+    let sql = `ALTER TABLE \`${this.tableName}\` DROP PRIMARY KEY;`
     const conn = await this.getConnection(database)
     await conn.query(sql)
     return this
@@ -234,7 +251,7 @@ class Table extends Collection {
         delete this._schema[columnName]
       }
     }
-    let sql = `CREATE OR REPLACE TABLE \`${this.name}\` (`
+    let sql = `CREATE OR REPLACE TABLE \`${this.tableName}\` (`
     sql = Object.keys(this._schema).reduce((statement, columnName) => {
       const def = this._schema[columnName]
       let type = def.sqlType
@@ -253,7 +270,7 @@ class Table extends Collection {
     for (const columnName of Object.keys(this._schema)) {
       const def = this._schema[columnName]
       if (def.index) {
-        const sql = `CREATE INDEX \`${columnName}_idx ON\` \`${this.name}\` (\`${columnName}\`);`
+        const sql = `CREATE INDEX \`${columnName}_idx ON\` \`${this.tableName}\` (\`${columnName}\`);`
         Log.debug(sql)
         await (database || this._database).query(sql)
       }
@@ -277,9 +294,10 @@ class Table extends Collection {
       } else {
         let qualifiedColumnName = column.split('.')
         if (qualifiedColumnName.length > 1) {
-          qualifiedColumnName = quoted(foreignTables[qualifiedColumnName[0]]._column(qualifiedColumnName[1]), qualifiedColumnName[0])
+          const foreignTable = foreignTables[qualifiedColumnName[0]]
+          qualifiedColumnName = quoted(foreignTable._column(qualifiedColumnName[1]), foreignTable.tableName)
         } else {
-          qualifiedColumnName = quoted(this._column(column), this.name)
+          qualifiedColumnName = quoted(this._column(column), this.tableName)
         }
         for (const operator in filter[column]) {
           clauses.push(Conditions[operator](qualifiedColumnName, filter[column][operator]))
@@ -290,10 +308,10 @@ class Table extends Collection {
   }
 
   sqlFor (query = { projection: [], joins: [], filters: [], sort: [] }) {
-    const columns = quoted(this._columns(query.projection), this.name).join(', ')
+    const columns = quoted(this._columns(query.projection), this.tableName).join(', ')
     const innerJoin = query.joins && query.joins.length > 0
       ? query.joins.reduce((sql, join) => {
-        sql += `INNER JOIN \`${join.inner.name}\` ON ${quoted(this._column(join.on), this.name)}=${quoted(join.inner._column(join.on), join.inner.name)}`
+        sql += `INNER JOIN \`${join.inner.tableName}\` ON ${quoted(this._column(join.on), this.tableName)}=${quoted(join.inner._column(join.on), join.inner.tableName)}`
         return sql
       }, ` `)
       : ''
@@ -310,7 +328,7 @@ class Table extends Collection {
         return `\`${this._column(spec[0])}\` ${spec[1]}`
       }).join('AND ')}`
       : ''
-    return `SELECT ${columns} FROM \`${this.name}\`${innerJoin}${where}${order};`
+    return `SELECT ${columns} FROM \`${this.tableName}\`${innerJoin}${where}${order};`
   }
 
   _prepareRecord (record, _columnNames = {}) {
@@ -379,19 +397,19 @@ class Table extends Collection {
       values = values.slice(0, -2)
       const sql = Object.keys(sets).length > 0 ? `
 BEGIN NOT ATOMIC
-SELECT COUNT(*) FROM \`${this.name}\` WHERE ${condition} INTO @recordExists;
+SELECT COUNT(*) FROM \`${this.tableName}\` WHERE ${condition} INTO @recordExists;
 IF @recordExists > 0
 THEN
-  UPDATE \`${this.name}\` SET ${updates} WHERE ${condition};
+  UPDATE \`${this.tableName}\` SET ${updates} WHERE ${condition};
 ELSE
-  INSERT INTO \`${this.name}\` SET ${values};
+  INSERT INTO \`${this.tableName}\` SET ${values};
 END IF;
 END;`
         : `
 BEGIN NOT ATOMIC
-SELECT COUNT(*) FROM \`${this.name}\` WHERE ${condition} INTO @recordExists;
+SELECT COUNT(*) FROM \`${this.tableName}\` WHERE ${condition} INTO @recordExists;
 IF @recordExists < 1 THEN
-  INSERT INTO \`${this.name}\` SET ${values};
+  INSERT INTO \`${this.tableName}\` SET ${values};
 END IF;
 END;`
       return this.getConnection()
@@ -429,7 +447,7 @@ END;`
       try {
         const recordLoader = new RecordProcessor(table, table._updateRecord, keyMap, 5)
         recordLoader.on('finish', () => {
-          Log.info(`Finished loading ${path} into ${table.name}`)
+          Log.info(`Finished loading ${path} into ${table.tableName}`)
           resolve(table)
         })
         recordLoader.on('error', err => reject(err))
@@ -443,7 +461,7 @@ END;`
         parser.on('error', err => reject(err))
 
         const csvFile = FileSystem.createReadStream(path)
-        Log.debug(`Loading ${path} into ${table.name}...`)
+        Log.debug(`Loading ${path} into ${table.tableName}...`)
         csvFile.pipe(parser).pipe(recordLoader)
       } catch (err) {
         reject(err)
@@ -495,9 +513,9 @@ END;`
       *   SELECT * FROM aid_given_percent_of_gni
       *   ON DUPLICATE KEY UPDATE dpstest.aid_percent = aid_given_percent_of_gni.aid_given_percent_of_gni;
       */
-    const updates = tableColumns.filter(c => !this.keys.has(c)).map(c => `\`${this.name}\`.\`${c}\` = ${tmpTableName}.\`${c}\``)
+    const updates = tableColumns.filter(c => !this.keys.has(c)).map(c => `\`${this.tableName}\`.\`${c}\` = ${tmpTableName}.\`${c}\``)
     sql = `
-    INSERT INTO \`${this.name}\` (${quoted(tableColumns).join(', ')})
+    INSERT INTO \`${this.tableName}\` (${quoted(tableColumns).join(', ')})
       SELECT ${quoted(csvColumns).join(', ')} FROM ${tmpTableName}
       ON DUPLICATE KEY UPDATE ${updates.join(', ')};`
     Log.debug(sql)
@@ -506,7 +524,7 @@ END;`
     sql = `DROP TABLE ${tmpTableName}`
     Log.debug(sql)
     await conn.query(sql)
-    Log.info(`Finished loading ${path} into ${this.name}`)
+    Log.info(`Finished loading ${path} into ${this.tableName}`)
     return this
   }
 
@@ -522,11 +540,11 @@ END;`
   }
 
   async updateFromJoin (foreignTable, sharedColumn, columns) {
-    const updates = columns.map(c => `\`${this.name}\`.\`${this._column(c)}\` = \`${foreignTable.name}\`.\`${foreignTable._column(c)}\``)
+    const updates = columns.map(c => `\`${this.tableName}\`.\`${this._column(c)}\` = \`${foreignTable.tableName}\`.\`${foreignTable._column(c)}\``)
     const sql = `
-    UPDATE \`${this.name}\`
-    LEFT JOIN \`${foreignTable.name}\` 
-      ON \`${this.name}\`.\`${this._column(sharedColumn)}\` = \`${foreignTable.name}\`.\`${foreignTable._column(sharedColumn)}\` 
+    UPDATE \`${this.tableName}\`
+    LEFT JOIN \`${foreignTable.tableName}\` 
+      ON \`${this.tableName}\`.\`${this._column(sharedColumn)}\` = \`${foreignTable.tableName}\`.\`${foreignTable._column(sharedColumn)}\` 
     SET ${updates.join(', ')}`
     Log.debug(sql)
     const conn = await this.getConnection()
