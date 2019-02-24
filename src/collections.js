@@ -311,7 +311,7 @@ class Table extends Collection {
     const columns = quoted(this._columns(query.projection), this.tableName).join(', ')
     const innerJoin = query.joins && query.joins.length > 0
       ? query.joins.reduce((sql, join) => {
-        sql += `INNER JOIN \`${join.inner.tableName}\` ON ${quoted(this._column(join.on), this.tableName)}=${quoted(join.inner._column(join.on), join.inner.tableName)}`
+        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${quoted(this._column(join.on), this.tableName)}=${quoted(join.inner._column(join.on), join.inner.tableName)}`
         return sql
       }, ` `)
       : ''
@@ -320,10 +320,10 @@ class Table extends Collection {
       return tables
     }, {})
     const where = query.filters && query.filters.length > 0
-      ? ` WHERE ${query.filters.map(filter => this._sqlForFilter(filter, foreignTables)).join(' AND')}`
+      ? `\nWHERE ${query.filters.map(filter => this._sqlForFilter(filter, foreignTables)).join(' AND')}`
       : ''
     const order = query.sort && query.sort.length > 0
-      ? ` ORDER BY ${query.sort.map(f => {
+      ? `\nORDER BY ${query.sort.map(f => {
         const spec = Object.entries(f)[0] // there should only be one entry
         return `\`${this._column(spec[0])}\` ${spec[1]}`
       }).join('AND ')}`

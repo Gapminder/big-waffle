@@ -183,10 +183,7 @@ class DDFSchema {
     const tables = {}
     const domains = this.domains
     for (const schemaKey in this.datapoints) {
-      /* Keys in the same domain will be combined, e.g. ['country', 'time'] becomes ['geo', 'time']
-       * and then the domain wide table will be enhanced with a column to filter for the entity set
-       * e.g. "is--country"
-       */
+      // Keys in the same domain will be combined, e.g. ['country', 'time'] becomes ['geo', 'time']
       const primaryKey = []
       const mappedEntities = []
       for (const k of schemaKey.split('$')) {
@@ -202,7 +199,7 @@ class DDFSchema {
         tables[tableKey] = { kind: 'datapoints', key: primaryKey, resources: [], entityKeys: [] }
       }
       tables[tableKey].resources.push(...this.datapoints[schemaKey].resources)
-      tables[tableKey].entityKeys.push(...mappedEntities)
+      // tables[tableKey].entityKeys.push(...mappedEntities)
     }
     Object.values(tables).forEach(def => {
       def.entityKeys = [...new Set(def.entityKeys)]
@@ -251,6 +248,23 @@ class DDFSchema {
     return filters
   }
 
+  _addJoin (joins, foreignTable, on) {
+    /*
+     * Add the specified join to the list of joins, but only if the foreign table is not yet in that list.
+     *
+     * If the foreign table is in the list but with another "on" field raise an error.
+     */
+    for (const join of joins) {
+      if (join.inner.name === foreignTable.name) {
+        if (join.on !== on) {
+          throw QueryError(`Second join on '${foreignTable.name}' but with different key: '${on}'`)
+        }
+        return
+      }
+    }
+    joins.push({ inner: foreignTable, on })
+  }
+
   sqlFor (ddfQuery) {
     if (!this[ddfQuery.from]) {
       throw QueryError.NotSupported()
@@ -258,11 +272,14 @@ class DDFSchema {
     // replace key entries that refer to entities to corresponding domains
     const entityKeys = {}
     const filters = []
+    const joins = []
     for (const k of ddfQuery.select.key) {
       const domain = this.domains[k]
       if (domain) {
         entityKeys[k] = domain // e.g. "country" => "geo"
-        filters.push({ [`is--${k.toLowerCase()}`]: { $eq: true } })
+        const foreignTable = this.tableFor('entities', [domain])
+        this._addJoin(joins, foreignTable, domain)
+        this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } }, foreignTable.name)
       }
     }
     const key = ddfQuery.select.key.map(k => entityKeys[k] || k)
@@ -272,7 +289,6 @@ class DDFSchema {
     }
     const projection = [...key, ...ddfQuery.select.value]
 
-    const joins = []
     for (const joinOn in (ddfQuery.join || {})) {
       if (/^\$[_a-z0-9]+/.test(joinOn) !== true) {
         throw QuerySyntaxError.WrongJoin(ddfQuery)
@@ -286,10 +302,7 @@ class DDFSchema {
         throw QuerySyntaxError.WrongJoin(ddfQuery)
       }
       this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
-      joins.push({
-        inner: foreignTable,
-        on: joinOn.slice(1)
-      })
+      this._addJoin(joins, foreignTable, joinOn.slice(1))
     }
 
     this._addFilter(filters, ddfQuery.where || {})
@@ -598,6 +611,11 @@ class Dataset {
         for (const file of Object.keys(files)) {
           await table.loadCSVFile(file, files[file], options.viaTmpTable)
         }
+        /*
+         * the next section creates joins to update "is--country" columns on a "geo" table
+         * However, it was noted that it's at least as fast to do those joins during query processing
+         * so the DDFSchema will no longer include entityKeys in the table spec.
+         */
         const joins = (ddfTable.entityKeys || []).reduce((joins, entityKey) => {
           const domain = this.schema.domains[entityKey]
           if (!joins[domain]) {
