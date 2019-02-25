@@ -310,7 +310,7 @@ class DDFSchema {
 
     const sort = (ddfQuery.order_by || [])
 
-    return table.sqlFor({ projection, joins, filters, sort })
+    return table.sqlFor({ projection, joins, filters, sort, language: ddfQuery.language })
   }
 
   tableFor (kind = 'entities', key = []) {
@@ -525,6 +525,9 @@ class Dataset {
       return this.schema.queryStream(ddfQuery)
     }
 
+    if (this.language && this.language === ddfQuery.language) {
+      delete ddfQuery.language // this increases efficiency a bit
+    }
     const sql = this.schema.sqlFor(ddfQuery)
     Log.debug(sql)
     const connection = await DB.getConnection()
@@ -663,6 +666,9 @@ class Dataset {
     }
 
     const dataPackage = await JSONFile.readFile(`${dirPath}/datapackage.json`)
+    if (dataPackage.language) {
+      this.language = dataPackage.language.id
+    }
     this.schema = DDFSchema.fromDDFPackage(dataPackage)
 
     this._resources = dataPackage.resources.reduce((entries, resource) => {

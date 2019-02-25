@@ -23,6 +23,9 @@ class Query {
      * Note that this method does not check for existence
      * of concepts in a dataset etc.
      */
+    if (this.language && /^[a-zA-Z]{2,3}([_-]{1}[-_a-zA-Z0-9]{2,15})?$/.test(this.language) !== true) {
+      throw QuerySyntaxError.WrongLanguage(this)
+    }
     if (this.select === null || typeof this.select !== 'object') {
       throw QuerySyntaxError.MissingSelect(this)
     }

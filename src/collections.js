@@ -114,6 +114,7 @@ class Table extends Collection {
    */
   constructor (nameOrObject, mappedColumns = {}, keys = []) {
     super(nameOrObject)
+    this._schema = {}
     if (nameOrObject.name) {
       Object.assign(this, nameOrObject)
     }
@@ -127,15 +128,20 @@ class Table extends Collection {
     if (keys && keys.length > 0) {
       this.keys = new Set(keys)
     }
-    this._schema = {}
   }
 
-  _column (schemaName) {
+  _column (schemaName, language) {
+    if (language) {
+      const translatedColumn = this._column(`${schemaName}--${language}`)
+      if (this._schema[translatedColumn]) {
+        return translatedColumn
+      }
+    }
     return this._columnNames[schemaName] || schemaName
   }
 
-  _columns (arrayOfSchemaNames) {
-    return arrayOfSchemaNames.map(n => this._column(n))
+  _columns (arrayOfSchemaNames, language) {
+    return arrayOfSchemaNames.map(n => this._column(n, language))
   }
 
   get tableName () {
@@ -157,12 +163,33 @@ class Table extends Collection {
     this._columnNames = obj
   }
 
+  get auxillaryColumns () {
+    // Return a list with names of the columns that were added during loading, e.g. to support translations
+    return Object.keys(this._schema).filter(column => {
+      const def = this._schema[column]
+      return def.virtual === true || def.auxillary === true
+    })
+  }
+
+  set auxillaryColumns (columnNames) {
+    columnNames.forEach(column => {
+      if (!this._schema[column]) {
+        this._schema[column] = { auxillary: true }
+      } else {
+        this._schema[column].auxillary = true
+      }
+    })
+  }
+
   toJSON () {
     /*
      * Return a plain object that represents this dataset and
      * can be saved in a collection.
      */
-    const doc = { mappedColumns: this.mappedColumns }
+    const doc = {
+      auxillaryColumns: this.auxillaryColumns,
+      mappedColumns: this.mappedColumns
+    }
     if (this._tableName) {
       doc.tableName = this.tableName
     }
@@ -180,6 +207,8 @@ class Table extends Collection {
       return (fieldDef.size) * 2 + 2
     } else if (fieldDef.sqlType === `INTEGER`) {
       return 2
+    } else if (fieldDef.sqlType === `BIGINT`) {
+      return 4
     } else if (fieldDef.sqlType === `DOUBLE`) {
       return 8
     } else if (fieldDef.sqlType === `BOOLEAN`) {
@@ -187,6 +216,9 @@ class Table extends Collection {
     } else if ([`JSON`, `TEXT`, `BLOB`].includes(fieldDef.sqlType)) {
       return 0
     } else if (fieldDef.virtual) {
+      return 0
+    } else {
+      Log.warn(`Cannot estimate size for column \`${colName}\``)
       return 0
     }
   }
@@ -288,7 +320,7 @@ class Table extends Collection {
     }
   }
 
-  _sqlForFilter (filter, foreignTables = {}) {
+  _sqlForFilter (filter, foreignTables = {}, language = undefined) {
     /*
      * Add the SQL for one filter to the given sql.
      *
@@ -299,16 +331,16 @@ class Table extends Collection {
       if (['$and', '$or'].includes(column)) {
         const subClauses = []
         for (const subFilter of filter[column]) {
-          subClauses.push(this._sqlForFilter(subFilter, foreignTables))
+          subClauses.push(this._sqlForFilter(subFilter, foreignTables, language))
         }
         clauses.push(`(${subClauses.join(` ${column.slice(1).toUpperCase()}`)})`)
       } else {
         let qualifiedColumnName = column.split('.')
         if (qualifiedColumnName.length > 1) {
           const foreignTable = foreignTables[qualifiedColumnName[0]]
-          qualifiedColumnName = quoted(foreignTable._column(qualifiedColumnName[1]), foreignTable.tableName)
+          qualifiedColumnName = quoted(foreignTable._column(qualifiedColumnName[1], language), foreignTable.tableName)
         } else {
-          qualifiedColumnName = quoted(this._column(column), this.tableName)
+          qualifiedColumnName = quoted(this._column(column, language), this.tableName)
         }
         for (const operator in filter[column]) {
           clauses.push(Conditions[operator](qualifiedColumnName, filter[column][operator]))
@@ -318,8 +350,9 @@ class Table extends Collection {
     }
   }
 
-  sqlFor (query = { projection: [], joins: [], filters: [], sort: [] }) {
-    const columns = quoted(this._columns(query.projection), this.tableName).join(', ')
+  sqlFor (query = { language: undefined, projection: [], joins: [], filters: [], sort: [] }) {
+    const language = query.language
+    const columns = quoted(this._columns(query.projection, language), this.tableName).join(', ')
     const innerJoin = query.joins && query.joins.length > 0
       ? query.joins.reduce((sql, join) => {
         sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${quoted(this._column(join.on), this.tableName)}=${quoted(join.inner._column(join.on), join.inner.tableName)}`
@@ -331,12 +364,12 @@ class Table extends Collection {
       return tables
     }, {})
     const where = query.filters && query.filters.length > 0
-      ? `\nWHERE ${query.filters.map(filter => this._sqlForFilter(filter, foreignTables)).join(' AND')}`
+      ? `\nWHERE ${query.filters.map(filter => this._sqlForFilter(filter, foreignTables, language)).join(' AND')}`
       : ''
     const order = query.sort && query.sort.length > 0
       ? `\nORDER BY ${query.sort.map(f => {
         const spec = Object.entries(f)[0] // there should only be one entry
-        return `\`${this._column(spec[0])}\` ${spec[1]}`
+        return `\`${this._column(spec[0], language)}\` ${spec[1]}`
       }).join('AND ')}`
       : ''
     return `SELECT ${columns} FROM \`${this.tableName}\`${innerJoin}${where}${order};`
@@ -408,16 +441,18 @@ class Table extends Collection {
         return `${sql}\`${columnName}\`=${sqlSafe(sets[columnName], true)}, `
       }, ``)
       updates = updates.slice(0, -2)
-      /*
-       * The 'values' part of the SQL is going to be wrong in case of a language (translation)
-       * but translation records should point to existing entries, so that part of the SQL
-       * will never be used!
-       */
-      let values = Object.keys(preparedRecord).reduce((sql, columnName) => {
-        return `${sql}\`${columnName}\`=${sqlSafe(preparedRecord[columnName], true)}, `
+      let values = Object.keys(filter).reduce((sql, columnName) => {
+        return `${sql}\`${columnName}\`=${sqlSafe(filter[columnName], true)}, `
       }, ``)
-      values = values.slice(0, -2)
-      const sql = Object.keys(sets).length > 0 ? `
+      values = `${values}${updates}`
+      if (values.endsWith(', ')) {
+        values = values.slice(0, -2)
+      }
+      let sql
+      if (language) {
+        sql = `UPDATE \`${this.tableName}\` SET ${updates} WHERE ${condition};`
+      } else {
+        sql = Object.keys(sets).length > 0 ? `
 BEGIN NOT ATOMIC
 SELECT COUNT(*) FROM \`${this.tableName}\` WHERE ${condition} INTO @recordExists;
 IF @recordExists > 0
@@ -427,13 +462,14 @@ ELSE
   INSERT INTO \`${this.tableName}\` SET ${values};
 END IF;
 END;`
-        : `
+          : `
 BEGIN NOT ATOMIC
 SELECT COUNT(*) FROM \`${this.tableName}\` WHERE ${condition} INTO @recordExists;
 IF @recordExists < 1 THEN
   INSERT INTO \`${this.tableName}\` SET ${values};
 END IF;
 END;`
+      }
       return this.getConnection()
         .then(connection => {
           return connection.query(sql)
@@ -476,7 +512,7 @@ END;`
       })
   }
 
-  async loadCSVFile (path, keyMap = {}, translations = {}, viaTmpTable = false, separator = ',') {
+  async loadCSVFile (path, keyMap = {}, translations = {}, viaTmpTable = false, delimiter = ',') {
     /*
      * Parse all records in the CSV file and insert into this SQL table.
      *
@@ -488,8 +524,8 @@ END;`
      *
      * Returns a Promise that resolves to this Table.
      */
-    if (viaTmpTable !== true) {
-      return this.loadFromCSVFile(path, keyMap, translations, separator) // slower, but can handle large cells
+    if (viaTmpTable !== true || Object.keys(translations).length > 0) {
+      return this.loadFromCSVFile(path, keyMap, translations, delimiter) // slower, but can handle large cells
     }
     // 1. Create a (temporary) table for the CSV file, using the CONNECT db engine.
     /* CREATE TABLE aid_given_percent_of_gni (geo CHAR(3) NOT NULL, time INT NOT NULL,
@@ -499,7 +535,7 @@ END;`
      */
     const tmpTableName = `TT${Crypto.createHash('md5').update(path).digest('hex')}`
     const csvHeader = await firstline(path)
-    const csvColumns = this._columns(csvHeader.split(separator))
+    const csvColumns = this._columns(csvHeader.split(delimiter))
     const tableColumns = csvColumns.map(c => keyMap[c] || c)
     const columnDefs = csvColumns.reduce((statement, columnName) => {
       const def = this._schema[keyMap[columnName] || columnName]
@@ -513,7 +549,7 @@ END;`
       return `${statement} \`${columnName}\` ${type},`
     }, '')
     let sql = `CREATE TABLE ${tmpTableName} (${columnDefs.slice(0, -1)}) 
-    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${separator}' quoted=1;`
+    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
     Log.debug(sql)
     const conn = await this.getConnection()
     await conn.query(sql)

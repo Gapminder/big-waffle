@@ -15,6 +15,9 @@ class QueryError extends Error {
 }
 
 class QuerySyntaxError extends QueryError {
+  static WrongLanguage (query) {
+    return new this(`Query 'language' is not acceptable`, 'QL_WRONG_LANUAGE', query)
+  }
   static MissingSelect (query) {
     return new this(` Query does not have 'select:'`, 'QL_NO_SELECT', query)
   }
