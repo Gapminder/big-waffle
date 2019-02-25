@@ -1,3 +1,4 @@
+const FS = require('fs').promises
 const JSONFile = require('jsonfile')
 const Moment = require('moment')
 
@@ -476,14 +477,6 @@ class Dataset {
     return `${this.name}_${collectionName}_${this.version}`
   }
 
-  _getDatapointCollection (key) {
-    let collection = this.datapoints[key]
-    if (!collection) {
-      collection = this.datapoints[key] = new Table(this._getCollection(key))
-    }
-    return collection
-  }
-
   async open (mustExist = false) {
     let sql = `SELECT name, version, definition FROM datasets WHERE name = '${this.name}'`
     if (this.version) {
@@ -584,8 +577,8 @@ class Dataset {
     return {}
   }
 
-  async _createTableFor (ddfTable = { kind: 'datapoints', key: [], resources: [] }, options = { onlyParse: false, viaTmpTable: false }) {
-    const table = new Table(this._getCollection(ddfTable.key.join('$')), ddfTable.fieldMap)
+  async _createTableFor (ddfTable = { kind: 'datapoints', key: [], resources: [] }, translations = {}, options = { onlyParse: false, viaTmpTable: false }) {
+    const table = new Table(this._getCollection(ddfTable.key.join('$')), ddfTable.fieldMap, ddfTable.key)
     const files = ddfTable.resources.reduce((files, resourceName) => {
       const resourceDef = this._resources[resourceName]
       if (!resourceDef) {
@@ -596,7 +589,7 @@ class Dataset {
       return files
     }, {})
     for (const file of Object.keys(files)) {
-      await table.updateSchemaFromCSVFile(file, files[file])
+      await table.updateSchemaFromCSVFile(file, files[file], translations[file])
     }
     Log.info(`Expected row size is ${table.estimatedRowSize} bytes`)
     if (options.onlyParse !== true) {
@@ -609,7 +602,7 @@ class Dataset {
         await table.createIn(DB)
         await table.setPrimaryIndexTo(ddfTable.key)
         for (const file of Object.keys(files)) {
-          await table.loadCSVFile(file, files[file], options.viaTmpTable)
+          await table.loadCSVFile(file, files[file], translations[file], options.viaTmpTable)
         }
         /*
          * the next section creates joins to update "is--country" columns on a "geo" table
@@ -642,6 +635,28 @@ class Dataset {
     return table
   }
 
+  async _getTranslations (dirPath, dataPackage) {
+    /*
+     * Return an object with filenames as propterty names that mappings of
+     * language id to a corresponding file of translations.
+     *
+     * For now this is totally dependent on the DDFcsv notion that translation
+     * files, and file names, correspond 100% to the files in main data set.
+     */
+    const translations = {}
+    for (const translation of dataPackage.translations || []) {
+      const files = await FS.readdir(`${dirPath}/lang/${translation.id}`)
+      for (const fileName of files) {
+        const path = `${dirPath}/${fileName}`
+        if (!translations[path]) {
+          translations[path] = {}
+        }
+        translations[path][translation.id] = `${dirPath}/lang/${translation.id}/${fileName}`
+      }
+    }
+    return translations
+  }
+
   async loadFromDirectory (dirPath, options) {
     if (dirPath.endsWith('/')) {
       dirPath = dirPath.slice(0, -1)
@@ -655,22 +670,25 @@ class Dataset {
       return entries
     }, {})
 
+    const translations = await this._getTranslations(dirPath, dataPackage)
+
     // 1. Read concepts from file(s) and store in 'concepts' collection.
-    const concepts = await this._createTableFor(this.schema.conceptsTableDefinition)
+    const concepts = await this._createTableFor(this.schema.conceptsTableDefinition, translations)
     // 2. Update the schema with mapping of entity sets to entity domains
     // TODO: check that the domain of an entity set actually refers to a concept of type entity_domain!
     this.schema.ensureDomains(await DB.query(`SELECT concept AS name, domain FROM ${concepts.name} WHERE concept_type = 'entity_set';`))
     // 3. Create tables for each entity domain and load all files for that entity domain.
     for (const tableDef of this.schema.domainTableDefinitions) {
-      await this._createTableFor(tableDef, options)
+      await this._createTableFor(tableDef, translations, options)
     }
     // 4. Now create the datapoints tables and then load all the data.
     const datapointTableOptions = Object.assign({ viaTmpTable: true }, options)
     for (const tableDef of this.schema.datapointTableDefinitions) {
-      const table = await this._createTableFor(tableDef, datapointTableOptions)
-      await table.dropPrimaryIndex()
-      // TODO: create plain, single column, indexes for elements of the key with a sufficient cardinality, e.g. >= 100;
-      // SELECT COUNT(DISTINCT gender) FROM population_age$geo$gender$year_2018122701;
+      const table = await this._createTableFor(tableDef, translations, datapointTableOptions)
+      if (options.onlyParse !== true) {
+        await table.dropPrimaryIndex()
+        // TODO: create plain, single column, indexes for elements of the key with a sufficient cardinality, e.g. >= 100;
+      }
       table.cleanUp()
     }
     return this

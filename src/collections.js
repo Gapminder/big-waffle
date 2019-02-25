@@ -61,18 +61,18 @@ const Conditions = {
 }
 
 class RecordProcessor extends Writable {
-  constructor (aTable, processorFunction, keyMap = {}, highWatermark = 100) {
+  constructor (aTable, processorFunction, args = [], highWatermark = 100) {
     super({ objectMode: true, highWatermark })
     this.table = aTable
     this.processorFunction = processorFunction
-    this.mappedColumnNames = Object.assign({}, aTable.mappedColumnNames, keyMap)
+    this.processorArgs = args
   }
 
   _writev (chunks, callback) {
     try {
       const promises = []
       for (let chunk of chunks) {
-        const result = this.processorFunction.call(this.table, chunk.chunk, this.mappedColumnNames) // ok to ignore chunk.encoding
+        const result = this.processorFunction.call(this.table, chunk.chunk, ...this.processorArgs) // ok to ignore chunk.encoding
         if (result instanceof Promise) {
           promises.push(result)
         }
@@ -89,7 +89,7 @@ class RecordProcessor extends Writable {
 
   _write (record, encoding, callback) {
     try {
-      const result = this.processorFunction.call(this.table, record, this.mappedColumnNames) // ok to ignore chunk.encoding
+      const result = this.processorFunction.call(this.table, record, ...this.processorArgs) // ok to ignore chunk.encoding
       if (result instanceof Promise) {
         result.then(value => callback(null, { processed: 1 }))
       } else {
@@ -112,7 +112,7 @@ class Table extends Collection {
   /*
    * A Collection that is implemented as table for a relational database.
    */
-  constructor (nameOrObject, mappedColumns = {}) {
+  constructor (nameOrObject, mappedColumns = {}, keys = []) {
     super(nameOrObject)
     if (nameOrObject.name) {
       Object.assign(this, nameOrObject)
@@ -123,6 +123,9 @@ class Table extends Collection {
     }
     if (mappedColumns) {
       this._columnNames = Object.assign({}, mappedColumns)
+    }
+    if (keys && keys.length > 0) {
+      this.keys = new Set(keys)
     }
     this._schema = {}
   }
@@ -182,6 +185,8 @@ class Table extends Collection {
     } else if (fieldDef.sqlType === `BOOLEAN`) {
       return 1
     } else if ([`JSON`, `TEXT`, `BLOB`].includes(fieldDef.sqlType)) {
+      return 0
+    } else if (fieldDef.virtual) {
       return 0
     }
   }
@@ -255,10 +260,16 @@ class Table extends Collection {
     sql = Object.keys(this._schema).reduce((statement, columnName) => {
       const def = this._schema[columnName]
       let type = def.sqlType
+      let virtual = ''
+      if (def.virtual) {
+        type = this._schema[this._column(def.value)].sqlType
+        def.size = Math.max(this._schema[this._column(def.value)].size || 0, this._schema[this._column(def.fallback)].size || 0)
+        virtual = ` AS (IFNULL(\`${this._column(def.value)}\`, \`${this._column(def.fallback)}\`)) VIRTUAL`
+      }
       if (type === `VARCHAR`) {
         type = `VARCHAR(${def.size})`
       }
-      return `${statement} \`${columnName}\` ${type}${withIndexes ? def.index || '' : ''},`
+      return `${statement} \`${columnName}\` ${type}${virtual}${withIndexes ? def.index || '' : ''},`
     }, sql)
     sql = `${sql.slice(0, -1)});`
     Log.debug(sql)
@@ -334,7 +345,7 @@ class Table extends Collection {
   _prepareRecord (record, _columnNames = {}) {
     const preparedRecord = Object.assign({}, record)
     for (const field of Object.keys(record)) {
-      if ((preparedRecord[field] === '' || preparedRecord[field] === null)) {
+      if (preparedRecord[field] === '' || preparedRecord[field] === undefined || preparedRecord[field] === null) {
         delete preparedRecord[field]
         continue
       }
@@ -364,7 +375,7 @@ class Table extends Collection {
     }
   }
 
-  _updateRecord (record, keyMap) {
+  _updateRecord (record, keyMap, language) {
     /*
      * Return a promise!
      */
@@ -379,8 +390,14 @@ class Table extends Collection {
             throw new Error(`Record misses value for primary key ${field}\n${JSON.stringify(record)}`)
           }
         } else {
-          sets[field] = preparedRecord[field]
+          const columnName = language ? `_${field}--${language}` : field
+          sets[columnName] = preparedRecord[field]
         }
+      }
+
+      if (language && Object.keys(sets).length < 1) {
+        // this is an empty translation record
+        return
       }
 
       let condition = Object.keys(filter).reduce((sql, keyName) => {
@@ -388,9 +405,14 @@ class Table extends Collection {
       }, ``)
       condition = condition.slice(0, -5)
       let updates = Object.keys(sets).reduce((sql, columnName) => {
-        return `${sql}\`${columnName}\`=${sqlSafe(preparedRecord[columnName], true)}, `
+        return `${sql}\`${columnName}\`=${sqlSafe(sets[columnName], true)}, `
       }, ``)
       updates = updates.slice(0, -2)
+      /*
+       * The 'values' part of the SQL is going to be wrong in case of a language (translation)
+       * but translation records should point to existing entries, so that part of the SQL
+       * will never be used!
+       */
       let values = Object.keys(preparedRecord).reduce((sql, columnName) => {
         return `${sql}\`${columnName}\`=${sqlSafe(preparedRecord[columnName], true)}, `
       }, ``)
@@ -434,7 +456,7 @@ END;`
     }
   }
 
-  loadFromCSVFile (path, keyMap = {}) {
+  loadFromCSVFile (path, keyMap = {}, translations = {}, delimiter = ',') {
     /*
      * Parse all records in the CSV file and insert into this SQL table.
      *
@@ -442,34 +464,19 @@ END;`
      *
      * Returns a Promise that resolves to this Table.
      */
-    const table = this
-    return new Promise((resolve, reject) => {
-      try {
-        const recordLoader = new RecordProcessor(table, table._updateRecord, keyMap, 5)
-        recordLoader.on('finish', () => {
-          Log.info(`Finished loading ${path} into ${table.tableName}`)
-          resolve(table)
-        })
-        recordLoader.on('error', err => reject(err))
-
-        const parser = CSVParser({
-          delimiter: ',',
-          cast: true,
-          columns: true,
-          trim: true
-        })
-        parser.on('error', err => reject(err))
-
-        const csvFile = FileSystem.createReadStream(path)
-        Log.debug(`Loading ${path} into ${table.tableName}...`)
-        csvFile.pipe(parser).pipe(recordLoader)
-      } catch (err) {
-        reject(err)
-      }
-    })
+    const mappedColumnNames = Object.assign({}, this.mappedColumnNames, keyMap)
+    return this._pipeCSVFile(path, this._updateRecord, [mappedColumnNames], delimiter, 5)
+      .then(thisTable => {
+        return Promise.all(Object.keys(translations).map(language => {
+          return this._pipeCSVFile(translations[language], this._updateRecord, [mappedColumnNames, language], delimiter, 5)
+        }))
+      })
+      .then(() => {
+        return this
+      })
   }
 
-  async loadCSVFile (path, keyMap = {}, viaTmpTable = false, separator = ',') {
+  async loadCSVFile (path, keyMap = {}, translations = {}, viaTmpTable = false, separator = ',') {
     /*
      * Parse all records in the CSV file and insert into this SQL table.
      *
@@ -477,10 +484,12 @@ END;`
      * The provided list of (non-key) columns must exist in both the CSV file
      * as well as already in this table.
      *
+     * If translations are given load the translations too.
+     *
      * Returns a Promise that resolves to this Table.
      */
     if (viaTmpTable !== true) {
-      return this.loadFromCSVFile(path, keyMap) // slower, but can handle large cells
+      return this.loadFromCSVFile(path, keyMap, translations, separator) // slower, but can handle large cells
     }
     // 1. Create a (temporary) table for the CSV file, using the CONNECT db engine.
     /* CREATE TABLE aid_given_percent_of_gni (geo CHAR(3) NOT NULL, time INT NOT NULL,
@@ -552,18 +561,31 @@ END;`
     return this
   }
 
-  _updateSchemaWith (record, keyMap) {
+  _updateSchemaWith (record, keyMap = {}, language) {
     /*
      * Update the schema with the data from this record.
      */
     const preparedRecord = this._prepareRecord(record, keyMap)
-    for (const columnName of Object.keys(preparedRecord)) {
+    for (const column of Object.keys(preparedRecord)) {
+      const columnName = language ? (this.keys.has(column) ? column : `_${column}--${language}`) : column
       let def = this._schema[columnName]
       if (!def) {
         def = { uniques: new Set() }
+        if (language) {
+          /*
+           * Add another column, which will be virtual,
+           * that takes its values from the language specific column if not null
+           * and otherwise from the main, untranslated, column
+           */
+          this._schema[`${column}--${language}`] = {
+            virtual: true,
+            value: columnName,
+            fallback: column
+          }
+        }
         this._schema[columnName] = def
       }
-      const typicalValue = preparedRecord[columnName]
+      const typicalValue = preparedRecord[column]
       if (def.cardinality === undefined || def.cardinality < 201) {
         def.uniques.add(typicalValue)
         def.cardinality = def.uniques.size
@@ -601,26 +623,19 @@ END;`
     }
   }
 
-  updateSchemaFromCSVFile (path, keyMap = {}) {
-    /*
-     * Scan all records in the CSV file to find the optimal schema for each column in the file.
-     *
-     * The file may contain a subset of the final set of columns for this table.
-     *
-     * Returns a Promise that resolves to this Table.
-     */
+  _pipeCSVFile (path, processingMethod, args = [], delimiter = ',', highWatermark) {
     const table = this
     return new Promise((resolve, reject) => {
       try {
-        const schemaComputer = new RecordProcessor(table, table._updateSchemaWith, keyMap)
+        const schemaComputer = new RecordProcessor(table, processingMethod, args, highWatermark)
         schemaComputer.on('finish', () => {
-          Log.debug(`Finished scan of ${path} for ${table.name}`)
+          Log.info(`Processed ${path} for ${table.name}`)
           resolve(table)
         })
         schemaComputer.on('error', err => reject(err))
 
         const parser = CSVParser({
-          delimiter: ',',
+          delimiter: delimiter,
           cast: true,
           columns: true,
           trim: true
@@ -628,13 +643,38 @@ END;`
         parser.on('error', err => reject(err))
 
         const csvFile = FileSystem.createReadStream(path)
-        Log.info(`Scanning ${path} to update schema of ${table.name}`)
+        Log.info(`Processing ${path} for ${table.name}`)
         Log.debug(`using mapping: ${JSON.stringify(this._columnNames)}`)
         csvFile.pipe(parser).pipe(schemaComputer)
       } catch (err) {
         reject(err)
       }
     })
+  }
+
+  updateSchemaFromCSVFile (path, keyMap = {}, translations = {}) {
+    /*
+     * Scan all records in the CSV file to find the optimal schema for each column in the file.
+     *
+     * The file may contain a subset of the final set of columns for this table.
+     *
+     * The translations, if provided, are a mapping of language ids to file paths
+     * that should have translations for some of the values for this table.
+     * For each such file, i.e. for each translated language, additional columns to
+     * hold the translated values will be created.
+     *
+     * Returns a Promise that resolves to this Table.
+     */
+    const mappedColumnNames = Object.assign({}, this.mappedColumnNames, keyMap)
+    return this._pipeCSVFile(path, this._updateSchemaWith, [mappedColumnNames])
+      .then(thisTable => {
+        return Promise.all(Object.keys(translations).map(language => {
+          return this._pipeCSVFile(translations[language], this._updateSchemaWith, [mappedColumnNames, language])
+        }))
+      })
+      .then(() => {
+        return this
+      })
   }
 }
 
