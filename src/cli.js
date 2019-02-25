@@ -41,7 +41,7 @@ deleteCmd.addArgument(
 deleteCmd.addArgument(
   'version',
   {
-    help: `The version of the dataset that should be deleted. "ALL" will delete all versions!`
+    help: `The version of the dataset that should be deleted. "_ALL_" will delete all versions!`
   }
 )
 const listCmd = subparsers.addParser('list', {
