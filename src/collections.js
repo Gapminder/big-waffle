@@ -352,7 +352,7 @@ class Table extends Collection {
      */
     const clauses = []
     for (const column in filter) {
-      if (['$and', '$or'].includes(column)) {
+      if (['$and', '$or'].includes(column)) { // TODO: add $not and $nor ?
         const subClauses = []
         for (const subFilter of filter[column]) {
           subClauses.push(this._sqlForFilter(subFilter, foreignTables, language))
@@ -630,7 +630,7 @@ END;`
       const columnName = language ? (this.keys.has(column) ? column : `_${column}--${language}`) : column
       let def = this._schema[columnName]
       if (!def) {
-        def = { uniques: new Set() }
+        def = { uniques: new Set(), count: 0 }
         if (language) {
           /*
            * Add another column, which will be virtual,
