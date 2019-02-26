@@ -44,20 +44,44 @@ function sqlSafe (value, quoteResultIfNeeded = false) {
   return safeValue
 }
 
+function _convertOperand (operand) {
+  if (typeof operand === 'string') {
+    return `'${operand}'`
+  } else if (operand === null || operand === undefined) {
+    return `NULL`
+  } else if (operand === true) {
+    return `TRUE`
+  } else if (operand === false) {
+    return `FALSE`
+  }
+  return operand
+}
+
 const Conditions = {
   $eq: (col, operand) => {
     if (operand === true) {
       return `${col} IS TRUE`
     } else if (operand === false) {
       return `${col} IS FALSE`
-    } else if (typeof operand === 'string') {
-      return `${col} = '${operand}'`
     } else {
-      return `${col} = ${operand}`
+      return `${col} <==> ${_convertOperand(operand)}` // NULL <==> NULL is true! (https://mariadb.com/kb/en/library/null-safe-equal/)
     }
   },
-  $lt: (col, operand) => `${col} < ${operand}`,
-  $gt: (col, operand) => `${col} > ${operand}`
+  $gt: (col, operand) => `${col} > ${_convertOperand(operand)}`,
+  $gte: (col, operand) => `${col} >= ${_convertOperand(operand)}`,
+  $lt: (col, operand) => `${col} < ${_convertOperand(operand)}`,
+  $lte: (col, operand) => `${col} <= ${_convertOperand(operand)}`,
+  $ne: (col, operand) => {
+    if (operand === true) {
+      return `${col} IS NOT TRUE`
+    } else if (operand === false) {
+      return `${col} IS NOT FALSE`
+    } else {
+      return `! (${col} <==> ${_convertOperand(operand)})` // NULL <==> NULL is true! (https://mariadb.com/kb/en/library/null-safe-equal/)
+    }
+  },
+  $in: (col, list) => `${col} IN (${list.map(item => _convertOperand(item)).join(', ')})`,
+  $nin: (col, list) => `${col} IN (${list.map(item => _convertOperand(item)).join(', ')})`
 }
 
 class RecordProcessor extends Writable {
