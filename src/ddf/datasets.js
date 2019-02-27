@@ -279,9 +279,13 @@ class DDFSchema {
       const domain = this.domains[k]
       if (domain) {
         entityKeys[k] = domain // e.g. "country" => "geo"
-        const foreignTable = this.tableFor('entities', [domain])
-        this._addJoin(joins, foreignTable, domain)
-        this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } }, foreignTable.name)
+        if (ddfQuery.from === 'entities') {
+          this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } })
+        } else {
+          const foreignTable = this.tableFor('entities', [domain])
+          this._addJoin(joins, foreignTable, domain)
+          this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } }, foreignTable.name)
+        }
       }
     }
     const key = ddfQuery.select.key.map(k => entityKeys[k] || k)
@@ -775,6 +779,7 @@ class Dataset {
             }
           })
       }))
+      // TODO: remove assets from cloud storage ?
       await conn.query(`DELETE FROM datasets WHERE ${filters.join(' AND ')};`)
     } catch (err) {
       Log.error(err)
