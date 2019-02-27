@@ -47,7 +47,7 @@ function sqlSafe (value, quoteResultIfNeeded = false) {
 function _convertOperand (operand) {
   if (typeof operand === 'string') {
     return `'${operand}'`
-  } else if (operand === null || operand === undefined) {
+  } else if (operand === null || operand === undefined) {
     return `NULL`
   } else if (operand === true) {
     return `TRUE`
@@ -64,7 +64,7 @@ const Conditions = {
     } else if (operand === false) {
       return `${col} IS FALSE`
     } else {
-      return `${col} <==> ${_convertOperand(operand)}` // NULL <==> NULL is true! (https://mariadb.com/kb/en/library/null-safe-equal/)
+      return `${col} <=> ${_convertOperand(operand)}` // NULL <=> NULL is true! (https://mariadb.com/kb/en/library/null-safe-equal/)
     }
   },
   $gt: (col, operand) => `${col} > ${_convertOperand(operand)}`,
@@ -77,7 +77,7 @@ const Conditions = {
     } else if (operand === false) {
       return `${col} IS NOT FALSE`
     } else {
-      return `! (${col} <==> ${_convertOperand(operand)})` // NULL <==> NULL is true! (https://mariadb.com/kb/en/library/null-safe-equal/)
+      return `! (${col} <=> ${_convertOperand(operand)})` // NULL <=> NULL is true! (https://mariadb.com/kb/en/library/null-safe-equal/)
     }
   },
   $in: (col, list) => `${col} IN (${list.map(item => _convertOperand(item)).join(', ')})`,
