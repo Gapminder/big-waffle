@@ -6,6 +6,7 @@ const { DB } = require('../maria')
 const { Table } = require('../collections')
 const { QueryError, QuerySyntaxError, SchemaError } = require('./errors')
 const { ArrayStream } = require('./queries')
+const CloudStore = require('../cloud-storage')
 
 const Log = require('../log')('datasets')
 
@@ -331,7 +332,14 @@ class DDFSchema {
     /*
      * Save relevant info about the table for a key
      */
-    this[kind][key.join('$')].table = table
+    const canonicalKey = key.join('$')
+    if (this[kind] === undefined) {
+      this[kind] = {}
+    }
+    if (this[kind][canonicalKey] === undefined) {
+      this[kind][canonicalKey] = {}
+    }
+    this[kind][canonicalKey].table = table
   }
 
   static fromDDFPackage (packageJSON) {
@@ -564,7 +572,7 @@ class Dataset {
 
   async revert () {
     /*
-     * Restore this Dataset to the one-but-last version
+     * Set the default version of this Dataset to the one that preceeds the current default.
      */
   }
 
@@ -697,7 +705,19 @@ class Dataset {
       }
       table.cleanUp()
     }
+    // 5. Import the assets in parallel
+    await this.importAssets(dirPath)
+
     return this
+  }
+
+  async importAssets (dirPath) {
+    const assets = await FS.readdir(`${dirPath}/assets`)
+    await Promise.all(assets.map(asset => CloudStore.upload(`${dirPath}/assets/${asset}`, `${this.name}/${this.version}/${asset}`)))
+  }
+
+  async urlForAsset (asset, secure = false) {
+    return CloudStore.urlFor(`${this.name}/${this.version}/${asset}`, secure)
   }
 
   get tableNames () {

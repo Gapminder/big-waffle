@@ -45,6 +45,24 @@ module.exports.DDFService = function () {
     ctx.body = datasets.map(ds => ds.name)
   })
 
+  api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)/assets/:asset([-a-z_0-9.]+)', async (ctx, next) => {
+    try {
+      Log.debug(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+      const dataset = new Dataset(ctx.params.dataset, ctx.params.version)
+      await dataset.open(true)
+      const url = await dataset.urlForAsset(ctx.params.asset, ctx.secure)
+      ctx.status = 301 // Permanent redirect!
+      ctx.redirect(url)
+    } catch (err) {
+      if (err.code === 'DDF_DATASET_NOT_FOUND') {
+        ctx.throw(404, err.message)
+      } else {
+        Log.error(err)
+      }
+      ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
+    }
+  })
+
   api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)?', async (ctx, next) => {
     Log.debug('Received DDF query')
     const start = Moment()
@@ -78,7 +96,7 @@ module.exports.DDFService = function () {
     }
 
     try {
-      Log.info(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
+      Log.debug(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
       const dataset = new Dataset(ctx.params.dataset, version)
       await dataset.open(true)
       if (ctx.headerSent || ctx.req.aborted) {
@@ -124,6 +142,7 @@ module.exports.DDFService = function () {
       ctx.throw(503, `Sorry, the DDF Service is too busy, try again later`)
     }
     await next()
+    Log.info({ req: ctx.request, res: ctx.response })
   })
 
   app.use(require('koa2-cors')({

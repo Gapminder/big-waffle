@@ -7,14 +7,18 @@ const { Dataset } = require('./ddf/datasets')
 
 function load (name, version, dirPath, options) {
   const startTime = Moment.utc()
-  const ds = new Dataset(name)
+  const ds = new Dataset(name, version)
   return ds.open()
     .then(async function (ds) {
-      ds.incrementVersion(version) // assign a version string based upon the date
-      await ds.loadFromDirectory(dirPath, options)
-      console.log(`Loading ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`)
-      if (options.onlyParse !== true) {
-        await ds.save()
+      if (options.assetsOnly) {
+        await ds.importAssets(dirPath)
+      } else {
+        ds.incrementVersion(version) // assign a version string based upon the date
+        await ds.loadFromDirectory(dirPath, options)
+        console.log(`Loading ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`)
+        if (options.onlyParse !== true) {
+          await ds.save()
+        }
       }
       DB.end()
     })
@@ -55,6 +59,7 @@ listCmd.addArgument(
     help: 'The name of the dataset'
   }
 )
+
 const loadCmd = subparsers.addParser('load', {
   help: 'Loads a dataset from a directory with CSV files'
 })
@@ -71,6 +76,13 @@ loadCmd.addArgument(
   {
     action: 'storeTrue',
     help: 'Does not actually load the data, but parses all data and prints the proposed schema'
+  }
+)
+loadCmd.addArgument(
+  ['-a', '--assets-only'],
+  {
+    action: 'storeTrue',
+    help: 'Only imports assets into a dataset'
   }
 )
 loadCmd.addArgument(
@@ -106,7 +118,7 @@ makeDefaultCmd.addArgument(
 async function run () {
   const args = parser.parseArgs()
   if (args.command === 'load') {
-    return load(args.dataset, args.version, resolve(args.directory), { onlyParse: args.only_parse, replace: args.replace })
+    return load(args.dataset, args.version, resolve(args.directory), { assetsOnly: args.assets_only, onlyParse: args.only_parse, replace: args.replace })
   } else if (args.command === 'delete') {
     return Dataset.remove(args.dataset, args.version)
   } else if (args.command === 'list') {
