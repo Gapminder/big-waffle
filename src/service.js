@@ -77,7 +77,7 @@ module.exports.DDFService = function () {
       } catch (urlonError) {
         json = JSON.parse(decodeURIComponent(ctx.querystring))
       }
-      Log.info(json)
+      Log.info({ query: json })
       ddfQuery = new Query(json)
     } catch (err) {
       Log.error(err)
