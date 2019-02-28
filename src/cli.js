@@ -13,7 +13,7 @@ function load (name, version, dirPath, options) {
       if (options.assetsOnly) {
         await ds.importAssets(dirPath)
       } else {
-        ds.incrementVersion(version) // assign a version string based upon the date
+        if (!ds.isNew || !version) ds.incrementVersion()
         await ds.loadFromDirectory(dirPath, options)
         console.log(`Loading ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`)
         if (options.onlyParse !== true) {

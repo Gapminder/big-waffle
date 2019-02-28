@@ -450,6 +450,10 @@ class Dataset {
     this._isNew = true
   }
 
+  get isNew () {
+    return this._isNew === true
+  }
+
   async save () {
     if (!this.version) {
       this.incrementVersion()
@@ -457,7 +461,7 @@ class Dataset {
     const doc = this.toJSON()
     let filter = ''
     let sql
-    if (this._isNew) {
+    if (this.isNew) {
       filter = this._keyFields.reduce((flt, field) => {
         flt += ` ${field} = '${doc[field]}',`
         delete doc[field]
@@ -477,7 +481,7 @@ class Dataset {
     }
     try {
       await DB.query(sql)
-      Log.info(`${this._isNew ? 'Inserted' : 'Updated'} dataset ${this.name}.${this.version}`)
+      Log.info(`${this.isNew ? 'Inserted' : 'Updated'} dataset ${this.name}.${this.version}`)
       delete this._isNew
     } catch (err) {
       Log.error({ err, sql })
@@ -716,7 +720,16 @@ class Dataset {
   }
 
   async importAssets (dirPath) {
-    const assets = await FS.readdir(`${dirPath}/assets`)
+    let assets = []
+    try {
+      assets = await FS.readdir(`${dirPath}/assets`)
+    } catch (err) {
+      if (err.code === 'ENOENT') { // directory does not exist
+        Log.info(`No assets in ${dirPath}`)
+      } else {
+        throw err
+      }
+    }
     await Promise.all(assets.map(asset => CloudStore.upload(`${dirPath}/assets/${asset}`, `${this.name}/${this.version}/${asset}`)))
   }
 

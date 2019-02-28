@@ -43,7 +43,14 @@ module.exports.DDFService = function () {
      */
     const datasets = await Dataset.all()
     ctx.set('Cache-Control', 'no-cache, no-store, must-revalidate')
-    ctx.body = datasets.map(ds => ds.name)
+    ctx.body = datasets.map(ds => {
+      const rec = {
+        name: ds.name,
+        version: ds.version
+      }
+      if (ds.is__default) rec.default = true
+      return rec
+    })
   })
 
   api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)?/assets/:asset([-a-z_0-9.]+)', async (ctx, next) => {
@@ -54,7 +61,7 @@ module.exports.DDFService = function () {
       if (!ctx.params.version) {
         ctx.redirect(`/${dataset.name}/${dataset.version}/assets/${ctx.params.asset}`)
       } else {
-        const url = await dataset.urlForAsset(ctx.params.asset, true)
+        const url = await dataset.urlForAsset(ctx.params.asset, ctx.secure)
         ctx.status = 301 // Permanent redirect!
         ctx.redirect(url)
       }
