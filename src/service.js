@@ -12,7 +12,7 @@ const TooBusy = require('toobusy-js')
 
 const { DB } = require('./maria')
 const { Dataset, Query, RecordPrinter } = require('./ddf')
-const { HTTPPort } = require('./env')
+const { AllowCaching, HTTPPort } = require('./env')
 const Log = require('./log')('service')
 
 TooBusy.maxLag(100)
@@ -42,17 +42,22 @@ module.exports.DDFService = function () {
      * List all (public) datasets that are currently available.
      */
     const datasets = await Dataset.all()
+    ctx.set('Cache-Control', 'no-cache, no-store, must-revalidate')
     ctx.body = datasets.map(ds => ds.name)
   })
 
-  api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)/assets/:asset([-a-z_0-9.]+)', async (ctx, next) => {
+  api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)?/assets/:asset([-a-z_0-9.]+)', async (ctx, next) => {
     try {
       Log.debug(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
       const dataset = new Dataset(ctx.params.dataset, ctx.params.version)
       await dataset.open(true)
-      const url = await dataset.urlForAsset(ctx.params.asset, ctx.secure)
-      ctx.status = 301 // Permanent redirect!
-      ctx.redirect(url)
+      if (!ctx.params.version) {
+        ctx.redirect(`/${dataset.name}/${dataset.version}/assets/${ctx.params.asset}`)
+      } else {
+        const url = await dataset.urlForAsset(ctx.params.asset, true)
+        ctx.status = 301 // Permanent redirect!
+        ctx.redirect(url)
+      }
     } catch (err) {
       if (err.code === 'DDF_DATASET_NOT_FOUND') {
         ctx.throw(404, err.message)
@@ -102,8 +107,13 @@ module.exports.DDFService = function () {
       if (ctx.headerSent || ctx.req.aborted) {
         return
       }
-      version = dataset.version
-      recordStream = await dataset.queryStream(ddfQuery, () => ctx.headerSent || ctx.req.aborted, start)
+      if (!ctx.params.version) {
+        ctx.redirect(`/${dataset.name}/${dataset.version}?${ctx.querystring}`)
+        return
+      } else {
+        version = dataset.version
+        recordStream = await dataset.queryStream(ddfQuery, () => ctx.headerSent || ctx.req.aborted, start)
+      }
     } catch (err) {
       if (recordStream && recordStream.cleanUp) recordStream.cleanUp(err)
       if (err.code === 'DDF_DATASET_NOT_FOUND') {
@@ -125,6 +135,7 @@ module.exports.DDFService = function () {
       }
       ctx.status = 200
       ctx.setType = 'application/json'
+      ctx.set('Cache-Control', AllowCaching ? 'public, max-age=31536000, immutable' : 'no-cache, no-store, must-revalidate')
       ctx.compress = ctx.acceptsEncodings('gzip', 'deflate') !== false
       ctx.body = recordStream.pipe(printer)
     } else {

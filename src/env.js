@@ -16,6 +16,7 @@ const envVars = [
   { name: 'LogLevel', envVar: 'LOG_LEVEL', _default: 'info' }, // one of 'trace', 'debug', 'info', 'warn', 'error', 'fatal'
   { name: 'MaintenanceMode', envVar: 'MAINTENANCE_MODE', _default: false },
   { name: 'HTTPPort', envVar: 'HTTP_PORT', _default: 80 },
+  { name: 'AllowCaching', envVar: 'CACHE_ALLOW', _default: true },
   { name: 'DBHost', envVar: 'DB_HOST', _default: 'localhost' },
   { name: 'DBUser', envVar: 'DB_USER', _default: 'gapminder' },
   { name: 'DBPassword', envVar: 'DB_PWD', _default: 'password' },

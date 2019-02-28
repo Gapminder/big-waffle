@@ -14,6 +14,23 @@ As BigWaffle is intended to run as a service you probably want to setup an init 
 BigWaffle is configured by environment variables; so you can set those in your init script, supervisor config, or monit control file. The enviroment variables are:
 
 ```HTTP_PORT```: the port that the HTTP service will listen on, defaults to `80`
+```CACHE_ALLOW```: if set to "FALSE" the server will indicate to client to not cache DDF query results. The default is "TRUE". Setting this to "FALSE" may be useful in testing and debugging.
+
+### Setup cloud storage
+
+DDF datasets may have _assets_, files that each are a value of some key in the dataset. These are used to keep very large values out of the dataset proper. Images or large vector maps are typical examples.
+
+BigWaffle is designed to move assets to a cloud storage service such as Google Cloud Storage or Amazon S3. Currently only Google Cloud Storage is supported. 
+
+#### Google Cloud Storage
+
+Setup a bucket on GCS, and make sure to have a _service account_ that can administer the bucket. Download and save the credentials file for that account on the server and make sure it can be read by the server account that will run the service. Then in the environment for the service set the variables:
+
+```GOOGLE_APPLICATION_CREDENTIALS```: the path and name of the credentials file
+```ASSET_STORE```: the type of cloud storage to use for dataset assets, defaults to `GCS`(which is the only supported option at the moment) so can also be absent
+```ASSET_STORE_BUCKET```: the name of the (root) bucket on the cloud storage service
+
+It is important to have a correct CORS policy on the bucket. [This is an example of how to do that](https://bitmovin.com/docs/encoding/faqs/how-do-i-set-up-cors-for-my-google-cloud-storage-bucket).
 
 ### Installation and configuration of MariaDb
 
