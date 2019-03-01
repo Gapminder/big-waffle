@@ -37,6 +37,14 @@ module.exports.DDFService = function () {
     ctx.body = 'loaderio-3ca287be03c603428fe74ca6695dde27'
   })
 
+  api.get('/ddf-service-directory', (ctx, next) => {
+    ctx.body = {
+      list: '/',
+      query: '/DATASET/VERSION',
+      assets: 'DATASET/VERSION/assets/ASSET'
+    }
+  })
+
   api.get('/', async (ctx, next) => {
     /*
      * List all (public) datasets that are currently available.
@@ -141,7 +149,7 @@ module.exports.DDFService = function () {
         Log.info(`Responded with ${printer.recordCounter} records`)
       }
       ctx.status = 200
-      ctx.setType = 'application/json'
+      ctx.type = 'application/json'
       ctx.set('Cache-Control', AllowCaching ? 'public, max-age=31536000, immutable' : 'no-cache, no-store, must-revalidate')
       ctx.compress = ctx.acceptsEncodings('gzip', 'deflate') !== false
       ctx.body = recordStream.pipe(printer)
