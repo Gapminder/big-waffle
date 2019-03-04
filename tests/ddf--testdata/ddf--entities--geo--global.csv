@@ -1,0 +1,2 @@
+global,is--global,latitude,longitude,name,topojson
+world,TRUE,0,0,World,assets/world-50m.json

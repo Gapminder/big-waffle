@@ -1,8 +1,16 @@
 {
-  "name": "BigWaffle",
+  "name": "big-waffle",
   "version": "0.1.0",
-  "description": "Waffle service that uses a db",
-  "scripts": {},
+  "description": "A DDF Service that uses an SQL database",
+  "license": "CC-BY-4.0",
+  "repository": "github:Gapminder/big-waffle",
+  "bugs": "https://github.com/Gapminder/big-waffle/issues",
+  "engines": {
+    "node": ">=10.15.1"
+  },
+  "scripts": {
+    "start": "node src/server.js"
+  },
   "dependencies": {
     "@google-cloud/storage": "^2.4.2",
     "argparse": "^1.0.10",

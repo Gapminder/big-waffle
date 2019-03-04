@@ -1,0 +1,9 @@
+gender,geo,time,population
+female,fin,1991,2345678
+male,fin,1991,2345679
+female,fin,2001,3456789
+male,fin,2001,3456790
+female,hkg,1991,567890
+male,hkg,1991,567891
+female,male,1991,12345
+male,male,1991,12346
