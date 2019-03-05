@@ -44,19 +44,42 @@ function list () {
 describe('CLI', function () {
   this.timeout(cliTimeout)
   describe('load', function () {
-    it('Should load test dataset without errors', function () {
+    it('Load test dataset without errors', function () {
       const scriptOutput = loadTestData()
       scriptOutput.toString().should.not.match(/error/i)
       const datasets = list()
       datasets.should.be.an('array').that.contains.something.like({ name: 'test' })
     })
-  })
-  describe('load with version', function () {
-    it('Should load test dataset and save with version', function () {
+    it('Load test dataset and save with version', function () {
       const scriptOutput = loadTestData('test', 'v2')
       scriptOutput.toString().should.not.match(/error/i)
       const datasets = list()
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2' })
+    })
+  })
+  describe('make-default', function () {
+    it('Set a version to be the default', function () {
+      const args = ['src/cli.js', 'make-default', 'test']
+      args.push('v2')
+      execFileSync('node', args, cliOptions)
+      const datasets = list()
+      datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2', default: true })
+      datasets.filter(entry => entry.name === 'test' && entry.default).length.should.equal(1)
+    })
+    // Tests to actually verify that the service returns the correct data for a default version are in the service suite.
+  })
+  describe('delete', function () {
+    it('Delete a specific version', function () {
+      const nrDatasetsBefore = list().length
+      execFileSync('node', ['src/cli.js', 'delete', 'test', 'v2'], cliOptions)
+      const datasets = list()
+      datasets.should.have.lengthOf(nrDatasetsBefore - 1)
+      datasets.should.be.an('array').that.contains.something.like({ name: 'test' }) // there should be still one version of 'test'
+    })
+    it('Delete all versions', function () {
+      execFileSync('node', ['src/cli.js', 'delete', 'test', '_ALL_'], cliOptions)
+      const datasets = list()
+      datasets.should.be.an('array').that.does.not.include.something.like({ name: 'test' })
     })
   })
 })
