@@ -8,24 +8,13 @@ const Koa = require('koa')
 const Router = require('koa-router')
 const Moment = require('moment')
 const Urlon = require('urlon')
-const TooBusy = require('toobusy-js')
 
 const { DB } = require('./maria')
 const { Dataset, Query, RecordPrinter } = require('./ddf')
 const { AllowCaching, HTTPPort } = require('./env')
 const Log = require('./log')('service')
 
-TooBusy.maxLag(100)
-TooBusy.interval(250)
-TooBusy.onLag(currentLag => {
-  if (currentLag > 200) {
-    Log.warn(`Event loop lag ${currentLag}ms`)
-  } else {
-    Log.info(`Event loop lag ${currentLag}ms`)
-  }
-})
-
-module.exports.DDFService = function () {
+module.exports.DDFService = function (forTesting = false) {
   const app = new Koa()
   const api = new Router() // routes for the main API
 
@@ -158,18 +147,30 @@ module.exports.DDFService = function () {
     }
   })
 
-  app.use(async (ctx, next) => {
-    /*
-     * Simple check to prevent from this worker to be flooded with requests.
-     * This as DDF queries usually take significant amounts of time to process
-     */
-    if (TooBusy() || DB.taskQueueSize() >= 5) {
-      Log.info(`Too busy!`)
-      ctx.throw(503, `Sorry, the DDF Service is too busy, try again later`)
-    }
-    await next()
-    Log.info({ req: ctx.request, res: ctx.response })
-  })
+  if (forTesting !== true) { // when running tests it's generally nicer to run without throttling to avoid a lot of logging.
+    const TooBusy = require('toobusy-js')
+    TooBusy.maxLag(100)
+    TooBusy.interval(250)
+    TooBusy.onLag(currentLag => {
+      if (currentLag > 200) {
+        Log.warn(`Event loop lag ${currentLag}ms`)
+      } else {
+        Log.info(`Event loop lag ${currentLag}ms`)
+      }
+    })
+    app.use(async (ctx, next) => {
+      /*
+      * Simple check to prevent from this worker to be flooded with requests.
+      * This as DDF queries usually take significant amounts of time to process
+      */
+      if (TooBusy() || DB.taskQueueSize() >= 5) {
+        Log.info(`Too busy!`)
+        ctx.throw(503, `Sorry, the DDF Service is too busy, try again later`)
+      }
+      await next()
+      Log.info({ req: ctx.request, res: ctx.response })
+    })
+  }
 
   app.use(require('koa2-cors')({
     origin: '*',
@@ -177,5 +178,5 @@ module.exports.DDFService = function () {
   }))
   app.use(Compress({ level: zlib.constants.Z_BEST_SPEED }))
   app.use(api.routes())
-  app.listen(HTTPPort)
+  return app.listen(HTTPPort)
 }

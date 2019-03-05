@@ -10,7 +10,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "mocha test/cli.js"
+    "test-cli": "mocha test/cli.js",
+    "test-service": "mocha test/service.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^2.4.2",
@@ -40,6 +41,7 @@
     "eslint-plugin-node": "^8.0.0",
     "eslint-plugin-promise": "^4.0.1",
     "eslint-plugin-standard": "^4.0.0",
-    "mocha": "^6.0.2"
+    "mocha": "^6.0.2",
+    "supertest": "^3.4.2"
   }
 }
