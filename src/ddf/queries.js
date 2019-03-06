@@ -36,7 +36,7 @@ class Query {
       throw QuerySyntaxError.WrongSelectValue(this)
     }
     if (typeof this.from !== 'string') {
-      throw QuerySyntaxError.MissingSelect(this)
+      throw QuerySyntaxError.MissingFrom(this)
     }
     if (this.order_by) {
       if (this.order_by instanceof Array !== true) {
