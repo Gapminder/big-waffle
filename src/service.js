@@ -140,6 +140,9 @@ module.exports.DDFService = function (forTesting = false) {
       ctx.status = 200
       ctx.type = 'application/json'
       ctx.set('Cache-Control', AllowCaching ? 'public, max-age=31536000, immutable' : 'no-cache, no-store, must-revalidate')
+      if (AllowCaching) {
+        ctx.set('Cache-Tag', `${ctx.params.dataset}/${version}`)
+      }
       ctx.compress = ctx.acceptsEncodings('gzip', 'deflate') !== false
       ctx.body = recordStream.pipe(printer)
     } else {
