@@ -32,7 +32,8 @@ class GoogleCloudStore extends CloudStore {
         cacheControl: 'public, max-age=31536000'
       }
     })
-    Log.info(`Succesfully uploaded ${localPath} to ${this.urlFor(remoteName)}`)
+    const assetUrl = await this.urlFor(remoteName)
+    Log.info(`Succesfully uploaded ${localPath} to ${assetUrl}`)
     return remoteName
   }
 }
