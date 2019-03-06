@@ -11,7 +11,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test-cli": "mocha test/cli.js",
-    "test-service": "mocha test/service.js"
+    "test-service": "LOG_LEVEL=warn mocha test/service.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^2.4.2",

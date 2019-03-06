@@ -1,0 +1,927 @@
+{
+    "name": "ddf--testdata",
+    "language": {
+        "id": "en"
+    },
+    "created": "2019-03-04T11:00:00Z",
+    "translations": [
+        {
+            "id": "fi-FI"
+        }
+    ],
+    "version": "0.1.0",
+    "resources": [
+        {
+            "path": "ddf--concepts.csv",
+            "name": "ddf--concepts",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "concept"
+                    },
+                    {
+                        "name": "concept_type"
+                    },
+                    {
+                        "name": "description"
+                    },
+                    {
+                        "name": "domain"
+                    },
+                    {
+                        "name": "name"
+                    },
+                    {
+                        "name": "scales"
+                    }
+                ],
+                "primaryKey": "concept"
+            }
+        },
+        {
+            "path": "ddf--datapoints--emissions--by--gas--geo--time.csv",
+            "name": "ddf--datapoints--emissions--by--gas--geo--time",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "gas"
+                    },
+                    {
+                        "name": "geo"
+                    },
+                    {
+                        "name": "time"
+                    },
+                    {
+                        "name": "emissions_as_an_extremely_long_indicator_name_of_60plus_chars"
+                    }
+                ],
+                "primaryKey": [
+                    "gas",
+                    "geo",
+                    "time"
+                ]
+            }
+        },
+        {
+            "path": "ddf--datapoints--population--by--geo--time.csv",
+            "name": "ddf--datapoints--population--by--geo--time",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "geo"
+                    },
+                    {
+                        "name": "time"
+                    },
+                    {
+                        "name": "population"
+                    }
+                ],
+                "primaryKey": [
+                    "geo",
+                    "time"
+                ]
+            }
+        },
+        {
+            "path": "ddf--datapoints--population--by--gender--geo--time.csv",
+            "name": "ddf--datapoints--population--by--gender--geo--time",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "gender"
+                    },
+                    {
+                        "name": "geo"
+                    },
+                    {
+                        "name": "time"
+                    },
+                    {
+                        "name": "population"
+                    }
+                ],
+                "primaryKey": [
+                    "gender",
+                    "geo",
+                    "time"
+                ]
+            }
+        },
+        {
+            "path": "ddf--datapoints--population--by--age--gender--geo--time.csv",
+            "name": "ddf--datapoints--population--by--age--gender--geo--time",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "age"
+                    },
+                    {
+                        "name": "gender"
+                    },
+                    {
+                        "name": "geo"
+                    },
+                    {
+                        "name": "time"
+                    },
+                    {
+                        "name": "population"
+                    }
+                ],
+                "primaryKey": [
+                    "age",
+                    "gender",
+                    "geo",
+                    "time"
+                ]
+            }
+        },
+        {
+            "path": "ddf--entities--gas.csv",
+            "name": "ddf--entities--gas",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "gas"
+                    },
+                    {
+                        "name": "name"
+                    },
+                    {
+                        "name": "name_short"
+                    }
+                ],
+                "primaryKey": "gas"
+            }
+        },
+        {
+            "path": "ddf--entities--gender.csv",
+            "name": "ddf--entities--gender",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "gender"
+                    },
+                    {
+                        "name": "name"
+                    }
+                ],
+                "primaryKey": "gender"
+            }
+        },
+        {
+            "path": "ddf--entities--geo--city.csv",
+            "name": "ddf--entities--geo--city",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "city"
+                    },
+                    {
+                        "name": "in_country"
+                    },
+                    {
+                        "name": "is--city"
+                    },
+                    {
+                        "name": "latitude"
+                    },
+                    {
+                        "name": "longitude"
+                    },
+                    {
+                        "name": "name"
+                    }
+                ],
+                "primaryKey": "city"
+            }
+        },
+        {
+            "path": "ddf--entities--geo--country.csv",
+            "name": "ddf--entities--geo--country",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "country"
+                    },
+                    {
+                        "name": "is--country"
+                    },
+                    {
+                        "name": "iso3166_1_alpha2"
+                    },
+                    {
+                        "name": "latitude"
+                    },
+                    {
+                        "name": "longitude"
+                    },
+                    {
+                        "name": "name"
+                    },
+                    {
+                        "name": "un_state"
+                    },
+                    {
+                        "name": "world_4region"
+                    },
+                    {
+                        "name": "world_6region"
+                    }
+                ],
+                "primaryKey": "country"
+            }
+        },
+        {
+            "path": "ddf--entities--geo--global.csv",
+            "name": "ddf--entities--geo--global",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "global"
+                    },
+                    {
+                        "name": "is--global"
+                    },
+                    {
+                        "name": "latitude"
+                    },
+                    {
+                        "name": "longitude"
+                    },
+                    {
+                        "name": "name"
+                    },
+                    {
+                        "name": "topojson"
+                    }
+                ],
+                "primaryKey": "global"
+            }
+        },
+        {
+            "path": "ddf--entities--geo--world_4region.csv",
+            "name": "ddf--entities--geo--world_4region",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "world_4region"
+                    },
+                    {
+                        "name": "description"
+                    },
+                    {
+                        "name": "is--world_4region"
+                    },
+                    {
+                        "name": "latitude"
+                    },
+                    {
+                        "name": "longitude"
+                    },
+                    {
+                        "name": "name"
+                    },
+                    {
+                        "name": "shape_lores_svg"
+                    }
+                ],
+                "primaryKey": "world_4region"
+            }
+        },
+        {
+            "path": "ddf--entities--geo--world_6region.csv",
+            "name": "ddf--entities--geo--world_6region",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "world_6region"
+                    },
+                    {
+                        "name": "is--world_6region"
+                    },
+                    {
+                        "name": "name"
+                    },
+                    {
+                        "name": "shape_lores_svg"
+                    }
+                ],
+                "primaryKey": "world_6region"
+            }
+        }
+    ],
+    "ddfSchema": {
+        "concepts": [
+            {
+                "primaryKey": [
+                    "concept"
+                ],
+                "value": "concept_type",
+                "resources": [
+                    "ddf--concepts"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "concept"
+                ],
+                "value": "description",
+                "resources": [
+                    "ddf--concepts"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "concept"
+                ],
+                "value": "domain",
+                "resources": [
+                    "ddf--concepts"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "concept"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--concepts"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "concept"
+                ],
+                "value": "scales",
+                "resources": [
+                    "ddf--concepts"
+                ]
+            }
+        ],
+        "entities": [
+            {
+                "primaryKey": [
+                    "gas"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--entities--gas"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "gas"
+                ],
+                "value": "name_short",
+                "resources": [
+                    "ddf--entities--gas"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "gender"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--entities--gender"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country"
+                ],
+                "value": "is--country",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country"
+                ],
+                "value": "iso3166_1_alpha2",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country"
+                ],
+                "value": "latitude",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country"
+                ],
+                "value": "longitude",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country"
+                ],
+                "value": "un_state",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country"
+                ],
+                "value": "world_4region",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country"
+                ],
+                "value": "world_6region",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "city"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--entities--geo--city"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "city"
+                ],
+                "value": "in_country",
+                "resources": [
+                    "ddf--entities--geo--city"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "city"
+                ],
+                "value": "is--city",
+                "resources": [
+                    "ddf--entities--geo--city"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "city"
+                ],
+                "value": "latitude",
+                "resources": [
+                    "ddf--entities--geo--city"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "city"
+                ],
+                "value": "longitude",
+                "resources": [
+                    "ddf--entities--geo--city"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "global"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--entities--geo--global"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "global"
+                ],
+                "value": "topojson",
+                "resources": [
+                    "ddf--entities--geo--global"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "global"
+                ],
+                "value": "is--global",
+                "resources": [
+                    "ddf--entities--geo--global"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "global"
+                ],
+                "value": "latitude",
+                "resources": [
+                    "ddf--entities--geo--global"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "global"
+                ],
+                "value": "longitude",
+                "resources": [
+                    "ddf--entities--geo--global"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_4region"
+                ],
+                "value": "description",
+                "resources": [
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_4region"
+                ],
+                "value": "is--world_4region",
+                "resources": [
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_4region"
+                ],
+                "value": "latitude",
+                "resources": [
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_4region"
+                ],
+                "value": "longitude",
+                "resources": [
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_4region"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_4region"
+                ],
+                "value": "shape_lores_svg",
+                "resources": [
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_6region"
+                ],
+                "value": "is--world_6region",
+                "resources": [
+                    "ddf--entities--geo--world_6region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_6region"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--entities--geo--world_6region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "world_6region"
+                ],
+                "value": "shape_lores_svg",
+                "resources": [
+                    "ddf--entities--geo--world_6region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "description",
+                "resources": [
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "in_country",
+                "resources": [
+                    "ddf--entities--geo--city"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "is--city",
+                "resources": [
+                    "ddf--entities--geo--city"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "is--country",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "is--global",
+                "resources": [
+                    "ddf--entities--geo--global"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "is--world_4region",
+                "resources": [
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "is--world_6region",
+                "resources": [
+                    "ddf--entities--geo--world_6region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "iso3166_1_alpha2",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "latitude",
+                "resources": [
+                    "ddf--entities--geo--city",
+                    "ddf--entities--geo--country",
+                    "ddf--entities--geo--global",
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "longitude",
+                "resources": [
+                    "ddf--entities--geo--city",
+                    "ddf--entities--geo--country",
+                    "ddf--entities--geo--global",
+                    "ddf--entities--geo--world_4region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "name",
+                "resources": [
+                    "ddf--entities--geo--city",
+                    "ddf--entities--geo--country",
+                    "ddf--entities--geo--global",
+                    "ddf--entities--geo--world_4region",
+                    "ddf--entities--geo--world_6region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "shape_lores_svg",
+                "resources": [
+                    "ddf--entities--geo--world_4region",
+                    "ddf--entities--geo--world_6region"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "topojson",
+                "resources": [
+                    "ddf--entities--geo--global"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "un_state",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "world_4region",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo"
+                ],
+                "value": "world_6region",
+                "resources": [
+                    "ddf--entities--geo--country"
+                ]
+            }
+        ],
+        "datapoints": [
+            {
+                "primaryKey": [
+                    "gas",
+                    "city",
+                    "time"
+                ],
+                "value": "emissions_as_an_extremely_long_indicator_name_of_60plus_chars",
+                "resources": [
+                    "ddf--datapoints--emissions--by--gas--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "gas",
+                    "country",
+                    "time"
+                ],
+                "value": "emissions_as_an_extremely_long_indicator_name_of_60plus_chars",
+                "resources": [
+                    "ddf--datapoints--emissions--by--gas--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "gas",
+                    "geo",
+                    "time"
+                ],
+                "value": "emissions_as_an_extremely_long_indicator_name_of_60plus_chars",
+                "resources": [
+                    "ddf--datapoints--emissions--by--gas--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "city",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "gender",
+                    "city",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--gender--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "age",
+                    "gender",
+                    "city",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--age--gender--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "country",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "gender",
+                    "country",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--gender--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "age",
+                    "gender",
+                    "country",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--age--gender--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "geo",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "gender",
+                    "geo",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--gender--geo--time"
+                ]
+            },
+            {
+                "primaryKey": [
+                    "age",
+                    "gender",
+                    "geo",
+                    "time"
+                ],
+                "value": "population",
+                "resources": [
+                    "ddf--datapoints--population--by--age--gender--geo--time"
+                ]
+            }
+        ],
+        "synonyms": []
+    }
+}
