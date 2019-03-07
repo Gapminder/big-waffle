@@ -38,6 +38,17 @@ Use MariaDb version 10.3 or newer. Install CONNECT plugin. Create a DB, and a "u
 
 Example script to set up the db and users:
 
+### Cloud Deployment
+
+The [Dockerfile](Dockerfile) can be used to create a Docker image that will run the NodeJS service. Note that the image will not include the database.
+To build the image issue, in a shell in this directory issue:
+
+    docker build -t big-waffle-server .
+
+Then to run ensure that the relevant environment variables are passed on to the container, e.g. like:
+
+    docker run -e ASSET_STORE_BUCKET='bucket-name' -e DB_HOST=host.docker.internal -e DB_PWD='password' -d -p 80:8888 big-waffle-server:latest
+
 
 ## Usage
 

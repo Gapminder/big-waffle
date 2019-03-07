@@ -1,9 +1,9 @@
 *~
 .*
-!.gitignore
-!.dockerignore
 /*.sql
+launch.json
 node_modules
+test
 
 .env
 npm-debug.log
@@ -14,4 +14,3 @@ _Inline/
 tmp/*
 !tmp/.gitkeep
 /tests/output/*
-/package-lock.json
