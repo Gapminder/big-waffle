@@ -18,8 +18,9 @@ const envVars = [
   { name: 'HTTPPort', envVar: 'HTTP_PORT', _default: 80 },
   { name: 'AllowCaching', envVar: 'CACHE_ALLOW', _default: true },
   { name: 'DBHost', envVar: 'DB_HOST', _default: 'localhost' },
-  { name: 'DBUser', envVar: 'DB_USER', _default: 'gapminder' },
+  { name: 'DBUser', envVar: 'DB_USER', _default: '__USER__' },
   { name: 'DBPassword', envVar: 'DB_PWD', _default: 'password' },
+  { name: 'DBSocketPath', envVar: 'DB_SOCKET_PATH', _default: '/var/run/mysqld/mysqld.sock' },
   { name: 'DBName', envVar: 'DB_NAME', _default: 'gapminder' },
   { name: 'ReservedCPUs', envVar: 'RESERVED_CPUS', _default: 4 },
   { name: 'AssetStore', envVar: 'ASSET_STORE', _default: 'GCS' }, // one of ['GCS'] (and later perhaps S3, etc.)
