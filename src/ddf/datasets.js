@@ -845,6 +845,8 @@ DB.query(`CREATE TABLE datasets (
   .catch(err => {
     if (err.code === 'ER_TABLE_EXISTS_ERROR') {
       Log.debug(`Datasets table found`)
+    } else if (err.code === 'ER_TABLEACCESS_DENIED_ERROR') {
+      Log.info('This node does not have write access to DB')
     } else {
       Log.error(err)
       process.exit(1)
