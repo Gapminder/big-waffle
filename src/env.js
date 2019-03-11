@@ -21,6 +21,7 @@ const envVars = [
   { name: 'DBUser', envVar: 'DB_USER', _default: '__USER__' },
   { name: 'DBPassword', envVar: 'DB_PWD', _default: 'password' },
   { name: 'DBSocketPath', envVar: 'DB_SOCKET_PATH', _default: '/var/run/mysqld/mysqld.sock' },
+  { name: 'DbConnectionTimeout', envVar: 'DB_CONNECTION_TIMEOUT', _default: 5 }, // in seconds
   { name: 'DBName', envVar: 'DB_NAME', _default: 'gapminder' },
   { name: 'ReservedCPUs', envVar: 'RESERVED_CPUS', _default: 4 },
   { name: 'AssetStore', envVar: 'ASSET_STORE', _default: 'GCS' }, // one of ['GCS'] (and later perhaps S3, etc.)

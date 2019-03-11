@@ -9,7 +9,7 @@ const connectionOptions = {
   host: env.DBHost,
   database: env.DBName,
   connectionLimit: 10,
-  acquireTimeout: 5000, // Keep this shorter than the typical timeout used on a client!
+  acquireTimeout: env.DbConnectionTimeout * 1000, // Keep this shorter than the typical timeout used on a client!
   noControlAfterUse: true // This allows for quick release after the connection has streamed results.
 }
 

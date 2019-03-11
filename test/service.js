@@ -2,44 +2,17 @@ const { execFileSync } = require('child_process')
 
 const moment = require('moment')
 const { after, before, describe, it } = require('mocha')
-const request = require('supertest')
 const chai = require('chai')
 chai.should()
 chai.use(require('chai-like'))
 chai.use(require('chai-things'))
-const Urlon = require('urlon')
 
 const { DB } = require('../src/maria')
-const { HTTPPort } = require('../src/env')
 const { DDFService } = require('../src/service')
-
-const cliTimeout = 5 * 1000 // CLI operations may take up to 5 seconds
-const cliOptions = {
-  cwd: process.cwd(),
-  env: Object.assign({}, process.env),
-  timeout: cliTimeout
-}
-
-function loadTestData (name = 'test', version) {
-  const args = ['src/cli.js', 'load', '-d', `test/ddf--testdata${version ? `.${version}` : ''}`, 'test']
-  if (version) {
-    args.push(version)
-  }
-  return execFileSync('node', args, cliOptions)
-}
-
-function DDFQueryClient (dataset = 'test') {
-  const client = request(`http://localhost:${HTTPPort}`)
-  client.query = function (ddfQueryObject, version, useUrlon = false) {
-    const versionPart = version ? `/${version}` : ''
-    const queryString = useUrlon ? encodeURIComponent(Urlon.stringify(ddfQueryObject)) : encodeURIComponent(JSON.stringify(ddfQueryObject))
-    return client.get(`/${dataset}${versionPart}?${queryString}`).redirects(version ? 0 : 1)
-  }
-  return client
-}
+const { cliOptions, loadTestData, DDFQueryClient } = require('./utils')
 
 describe('DDF Service', function () {
-  this.timeout(cliTimeout) // loading test data takes a few seconds
+  this.timeout(cliOptions.timeout * 3) // loading test data takes a few seconds
 
   let client, service, todaysVersion
 
@@ -48,7 +21,7 @@ describe('DDF Service', function () {
     execFileSync('node', ['src/cli.js', 'delete', 'test', '_ALL_'], cliOptions)
     // load test data
     loadTestData('test') // this will have a version based on the date, e.g. "2019030601"
-    loadTestData('test', 'v1') // this will have version 'v1'
+    loadTestData('test', 1) // this will have version 'v1'
     todaysVersion = `${moment.utc().format('YYYYMMDD')}01`
     // start the service
     service = DDFService(true) // "forTesting = true" to avoid throttling and spurious logging.

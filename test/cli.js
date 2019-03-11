@@ -5,24 +5,11 @@ chai.should()
 chai.use(require('chai-like'))
 chai.use(require('chai-things'))
 
-const cliTimeout = 5 * 1000 // CLI operations may take up to 5 seconds
-const cliOptions = {
-  cwd: process.cwd(),
-  env: Object.assign({}, process.env),
-  timeout: cliTimeout
-}
+const { cliOptions, loadTestData } = require('./utils')
 
-function loadTestData (name = 'test', asVersion) {
-  const args = ['src/cli.js', 'load', '-d', 'test/ddf--testdata', 'test']
-  if (asVersion) {
-    args.push(asVersion)
-  }
-  return execFileSync('node', args, cliOptions)
-}
-
-function list () {
+function list (name) {
   const output = execFileSync('node', ['src/cli.js', 'list'], cliOptions)
-  return output.toString().split('\n').filter(line => line.length > 5).map(line => {
+  let result = output.toString().split('\n').filter(line => line.length > 5).map(line => {
     const parts = line.split('.', 2)
     let version = parts[1]
     let isDefaultVersion = false
@@ -39,21 +26,25 @@ function list () {
     }
     return entry
   })
+  if (name) {
+    result = result.filter(entry => entry.name && entry.name === 'test')
+  }
+  return result
 }
 
 describe('CLI', function () {
-  this.timeout(cliTimeout)
+  this.timeout(cliOptions.timeout)
   describe('load', function () {
     it('Load test dataset without errors', function () {
       const scriptOutput = loadTestData()
       scriptOutput.toString().should.not.match(/error/i)
-      const datasets = list()
+      const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test' })
     })
     it('Load test dataset and save with version', function () {
-      const scriptOutput = loadTestData('test', 'v2')
+      const scriptOutput = loadTestData('test', 0, 'v2')
       scriptOutput.toString().should.not.match(/error/i)
-      const datasets = list()
+      const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2' })
     })
   })
