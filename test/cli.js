@@ -33,7 +33,7 @@ function list (name) {
 }
 
 describe('CLI', function () {
-  this.timeout(cliOptions.timeout)
+  this.timeout(cliOptions.timeout * 3)
   describe('load', function () {
     it('Load test dataset without errors', function () {
       const scriptOutput = loadTestData()
