@@ -14,11 +14,12 @@ const connectionOptions = {
 }
 
 if (env.DBUser === '__USER__') {
-  // use socket based connection and Unix auth (no explicit password)
   connectionOptions.user = require('os').userInfo().username
+}
+if (env.DBPassword === undefined) {
+  // use socket based connection and Unix auth (no explicit password)
   connectionOptions.socketPath = env.DBSocketPath
 } else {
-  connectionOptions.user = env.DBUser
   connectionOptions.password = env.DBPassword
 }
 

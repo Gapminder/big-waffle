@@ -19,7 +19,7 @@ const envVars = [
   { name: 'AllowCaching', envVar: 'CACHE_ALLOW', _default: true },
   { name: 'DBHost', envVar: 'DB_HOST', _default: 'localhost' },
   { name: 'DBUser', envVar: 'DB_USER', _default: '__USER__' },
-  { name: 'DBPassword', envVar: 'DB_PWD', _default: 'password' },
+  { name: 'DBPassword', envVar: 'DB_PWD' },
   { name: 'DBSocketPath', envVar: 'DB_SOCKET_PATH', _default: '/var/run/mysqld/mysqld.sock' },
   { name: 'DbConnectionTimeout', envVar: 'DB_CONNECTION_TIMEOUT', _default: 5 }, // in seconds
   { name: 'DBName', envVar: 'DB_NAME', _default: 'gapminder' },

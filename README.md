@@ -15,6 +15,7 @@ BigWaffle is configured by environment variables; so you can set those in your i
 
 ```HTTP_PORT```: the port that the HTTP service will listen on, defaults to `80`
 ```CACHE_ALLOW```: if set to "FALSE" the server will indicate to client to not cache DDF query results. The default is "TRUE". Setting this to "FALSE" may be useful in testing and debugging.
+```DB_SOCKET_PATH```: the path to the MariaDb socket used by clients. Needed if you want to use Unix socket authentication in MariaDb.
 
 ### Setup cloud storage
 
@@ -31,6 +32,7 @@ Setup a bucket on GCS, and make sure to have a _service account_ that can admini
 ```ASSET_STORE_BUCKET```: the name of the (root) bucket on the cloud storage service
 
 It is important to have a correct CORS policy on the bucket. [This is an example of how to do that](https://bitmovin.com/docs/encoding/faqs/how-do-i-set-up-cors-for-my-google-cloud-storage-bucket).
+
 
 ### Installation and configuration of MariaDb
 
@@ -64,6 +66,12 @@ These are the typical steps:
 See the package.json for all the fine libraries that are used in BigWaffle.
 
 ## License
+
+## Tests
+
+The test directory has scripts and data for regression tests. These are full end-to-end tests so can only be run with a properly setup, local!, MariaDb. Also an asset store should be set up. Running the test will then require proper setup of the shell environment. Typically with at least `ASSET_STORE_BUCKET`, `GOOGLE_APPLICATION_CREDENTIALS`, and `DB_SOCKET_PATH`, or `DB_PWD` (and `DB_USER`).
+
+Test scripts can be run from npm: ```npm run test-cli``` and ```npm run test-service```.
 
 ## Contributing
 
