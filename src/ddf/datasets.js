@@ -698,7 +698,7 @@ class Dataset {
     const concepts = await this._createTableFor(this.schema.conceptsTableDefinition, translations)
     // 2. Update the schema with mapping of entity sets to entity domains
     // TODO: check that the domain of an entity set actually refers to a concept of type entity_domain!
-    this.schema.ensureDomains(await DB.query(`SELECT concept AS name, domain FROM ${concepts.name} WHERE concept_type = 'entity_set';`))
+    this.schema.ensureDomains(await DB.query(`SELECT concept AS name, domain FROM \`${concepts.tableName}\` WHERE concept_type = 'entity_set';`))
     // 3. Create tables for each entity domain and load all files for that entity domain.
     for (const tableDef of this.schema.domainTableDefinitions) {
       await this._createTableFor(tableDef, translations, options)
