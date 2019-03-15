@@ -27,6 +27,7 @@
     "lodash": "^4.17.11",
     "mariadb": "^2.0.3",
     "moment": "^2.23.0",
+    "node-fetch": "^2.3.0",
     "tmp": "0.0.33",
     "toobusy-js": "^0.5.1",
     "urlon": "^2.0.1"

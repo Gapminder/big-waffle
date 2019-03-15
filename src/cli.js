@@ -4,9 +4,9 @@ const Moment = require('moment')
 
 const { DB } = require('./maria')
 const { Dataset } = require('./ddf/datasets')
+const { Slack } = require('./notifications')
 
 function load (name, version, dirPath, options) {
-  const startTime = Moment.utc()
   const ds = new Dataset(name, version)
   return ds.open()
     .then(async function (ds) {
@@ -14,11 +14,15 @@ function load (name, version, dirPath, options) {
         await ds.importAssets(dirPath)
       } else {
         if (!ds.isNew || !version) ds.incrementVersion()
+        await Slack(`Starting to load dataset ${name} from ${dirPath}${version ? `.${version}` : ''}`)
+        const startTime = Moment.utc()
         await ds.loadFromDirectory(dirPath, options)
-        console.log(`Loading ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`)
         if (options.onlyParse !== true) {
           await ds.save()
         }
+        const msg = `Loading dataset ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`
+        console.log(msg)
+        await Slack(msg)
       }
       DB.end()
     })
