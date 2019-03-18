@@ -8,7 +8,7 @@ const env = require('./env')
 const connectionOptions = {
   host: env.DBHost,
   database: env.DBName,
-  user: env.DBUser === '__USER__' ? require('os').userInfo().username : env.DB_USER,
+  user: env.DBUser === '__USER__' ? require('os').userInfo().username : env.DBUser,
   connectionLimit: 10,
   acquireTimeout: env.DbConnectionTimeout * 1000, // Keep this shorter than the typical timeout used on a client!
   noControlAfterUse: true // This allows for quick release after the connection has streamed results.
