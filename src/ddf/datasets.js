@@ -578,12 +578,6 @@ class Dataset {
     })
   }
 
-  async revert () {
-    /*
-     * Set the default version of this Dataset to the one that preceeds the current default.
-     */
-  }
-
   _getFieldMapForEntityCSVFile (filename) {
     const filenameParser = /ddf-{2}entities-{2}([a-z0-9]+)(-{2}[_a-z0-9]+)?/
 
@@ -801,10 +795,10 @@ class Dataset {
     }
   }
 
-  static async makeDefaultVersion (name, version) {
-    let conn
+  static async makeDefaultVersion (name, version, connection = undefined) {
+    let conn = connection
     try {
-      conn = await DB.getConnection()
+      conn = conn || await DB.getConnection()
       // Unset any default version
       await conn.query(`UPDATE datasets SET is__default = FALSE WHERE name = '${name}';`)
       // Set the given version to be the default
@@ -816,6 +810,79 @@ class Dataset {
         throw new Error(`Default version for ${name} could not be set to ${version}! Check database!`)
       }
       Log.info(`Default version for ${defaultVersions[0].name} is now ${defaultVersions[0].version}`)
+      return await this.all(name, conn)
+    } catch (err) {
+      Log.error(err)
+    } finally {
+      if (connection === undefined && conn.end) conn.end()
+    }
+  }
+
+  static async revert (name, version = undefined) {
+    /*
+     * Mark the version that preceeds the most recent version of the Dataset with the given name as default.
+     *
+     * If there is no current default version for the named dataset,
+     * the one but most recent version will be marked as default.
+     *
+     * If there is a default version and it is not the one but most recent,
+     * nothing will be changed and an error will be logged.
+     *
+     * If a version is given and no other version is marked as default, then
+     * the given version will be marked as default.
+     *
+     */
+    let conn
+    try {
+      conn = await DB.getConnection()
+      // get default and two most recent versions
+      let targetVersion, defaultVersion
+      const mostRecentTwo = await conn.query(`
+        SELECT name, version, is__default AS isDefault, imported
+        FROM datasets
+        WHERE name='${name}' 
+        ORDER BY imported DESC
+        LIMIT 2;`)
+      targetVersion = mostRecentTwo[1]
+      if (version && targetVersion.version !== version) {
+        targetVersion = undefined
+      }
+      if (mostRecentTwo[0] && mostRecentTwo[0].isDefault) {
+        defaultVersion = mostRecentTwo[0]
+        defaultVersion.isMostRecent = true
+      }
+      if (version && !targetVersion) {
+        targetVersion = (await conn.query(`
+        SELECT name, version, is__default AS isDefault
+        FROM datasets
+        WHERE name='${name}' AND version='${version}'`))[0]
+        if (!targetVersion) { // the requested version does not exist
+          throw new Error(`The requested version does not exist. Perhaps you want:\nrevert ${name}`)
+        }
+      }
+      if (!targetVersion && !version) { // there is only one version so no need to do really do anything
+        throw new Error(`There is only one version. Perhaps you want:\ndelete ${name} _ALL_`)
+      }
+      if (!targetVersion && version) { // there is only one version so no need to do really do anything
+        throw new Error(`The requested version does not exist. Perhaps check with:\nlist ${name}`)
+      }
+      defaultVersion = defaultVersion || (targetVersion.isDefault
+        ? targetVersion
+        : (await conn.query(`
+            SELECT name, version, is__default AS isDefault
+            FROM datasets
+            WHERE name='${name}' AND is__default=TRUE
+            LIMIT 1;`))[0])
+      if (defaultVersion) {
+        if (defaultVersion.version === version || defaultVersion.version === targetVersion.version) { // no need to change anything
+          return this.all(name, conn)
+        }
+        if (defaultVersion.isMostRecent !== true) {
+          throw new Error(`The current default version is ${defaultVersion.version}. Perhaps you want:
+            make-default ${name} ${targetVersion.version}`)
+        }
+      }
+      return await this.makeDefaultVersion(name, targetVersion.version, conn)
     } catch (err) {
       Log.error(err)
     } finally {
@@ -823,9 +890,9 @@ class Dataset {
     }
   }
 
-  static async all (name = undefined) {
+  static async all (name = undefined, connection = undefined) {
     const filter = name ? ` WHERE name = '${name}'` : ''
-    return DB.query(`SELECT name, version, is__default FROM datasets${filter} ORDER BY name ASC, is__default DESC, version DESC;`)
+    return (connection || DB).query(`SELECT name, version, is__default FROM datasets${filter} ORDER BY name ASC, imported DESC;`)
   }
 }
 

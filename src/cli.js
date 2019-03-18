@@ -126,6 +126,33 @@ makeDefaultCmd.addArgument(
     help: 'The version of the dataset that should be the default'
   }
 )
+const revertCmd = subparsers.addParser('revert', {
+  help: 'Make previous or explicitly given version of a given dataset the default version'
+})
+revertCmd.addArgument(
+  'dataset',
+  {
+    help: 'The name of the dataset'
+  }
+)
+revertCmd.addArgument(
+  'version',
+  {
+    defaultValue: undefined,
+    nargs: '?',
+    help: 'The version of the dataset that should be the new default'
+  }
+)
+
+function showList (datasets, named = undefined) {
+  if (datasets && datasets.length > 0) {
+    for (const dataset of datasets) {
+      console.log(`${dataset.name}.${dataset.version}${dataset.is__default ? '*' : ''}`)
+    }
+  } else {
+    console.log(`No datasets ${named ? `named '${named}' ` : ''}found.`)
+  }
+}
 
 async function run () {
   const args = parser.parseArgs()
@@ -134,20 +161,13 @@ async function run () {
   } else if (args.command === 'delete') {
     return Dataset.remove(args.dataset, args.version)
   } else if (args.command === 'list') {
-    const versions = await Dataset.all(args.dataset)
-    if (versions && versions.length > 0) {
-      for (const version of versions) {
-        console.log(`${version.name}.${version.version}${version.is__default ? '*' : ''}`)
-      }
-    } else {
-      const named = args.dataset ? `named '${args.dataset}' ` : ''
-      console.log(`No datasets ${named}found.`)
-    }
-    return null
+    return showList(await Dataset.all(args.dataset), args.dataset)
   } else if (args.command === 'make-default') {
-    return Dataset.makeDefaultVersion(args.dataset, args.version)
+    return showList(await Dataset.makeDefaultVersion(args.dataset, args.version), args.dataset)
+  } else if (args.command === 'revert') {
+    return showList(await Dataset.revert(args.dataset, args.version), args.dataset)
   } else {
-    parser.printUsage()
+    return parser.printUsage()
   }
 }
 
