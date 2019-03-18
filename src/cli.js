@@ -13,7 +13,13 @@ function load (name, version, dirPath, options) {
       if (options.assetsOnly) {
         await ds.importAssets(dirPath)
       } else {
-        if (!ds.isNew || !version) ds.incrementVersion()
+        if (!ds.isNew && version) {
+          console.error(`Dataset ${name}.${version} already exists`)
+          return
+        }
+        if (!ds.isNew || !version) {
+          ds.incrementVersion()
+        }
         await Slack(`Starting to load dataset ${name} from ${dirPath}${version ? `.${version}` : ''}`)
         const startTime = Moment.utc()
         await ds.loadFromDirectory(dirPath, options)
@@ -24,6 +30,8 @@ function load (name, version, dirPath, options) {
         console.log(msg)
         await Slack(msg)
       }
+    })
+    .finally(() => {
       DB.end()
     })
 }

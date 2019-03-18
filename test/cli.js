@@ -47,6 +47,12 @@ describe('CLI', function () {
       const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2' })
     })
+    it('Report error when trying to load same and version', function () {
+      const nrOfDatasets = list('test').length
+      const scriptOutput = loadTestData('test', 0, 'v2')
+      scriptOutput.toString().should.not.match(/error/i)
+      list('test').should.be.an('array').with.lengthOf(nrOfDatasets)
+    })
   })
   describe('make-default', function () {
     it('Set a version to be the default', function () {
