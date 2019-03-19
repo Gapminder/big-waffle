@@ -259,7 +259,7 @@ class DDFSchema {
     for (const join of joins) {
       if (join.inner.name === foreignTable.name) {
         if (join.on !== on) {
-          throw QueryError(`Second join on '${foreignTable.name}' but with different key: '${on}'`)
+          throw new QueryError(`Second join on '${foreignTable.name}' but with different key: '${on}'`)
         }
         return
       }
@@ -308,7 +308,9 @@ class DDFSchema {
         throw QuerySyntaxError.WrongJoin(ddfQuery)
       }
       this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
-      this._addJoin(joins, foreignTable, joinOn.slice(1))
+      let on = joinOn.slice(1)
+      on = entityKeys[on] || on
+      this._addJoin(joins, foreignTable, on)
     }
 
     this._addFilter(filters, ddfQuery.where || {})
