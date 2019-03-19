@@ -18,13 +18,16 @@ module.exports.DDFService = function (forTesting = false) {
   const app = new Koa()
   const api = new Router() // routes for the main API
 
-  api.get('/loaderio-3ca287be03c603428fe74ca6695dde27.txt', async (ctx, next) => {
-    /*
-     * Route to serve verification by the Loader TaaS
-     */
-    ctx.type = 'text/plain'
-    ctx.body = 'loaderio-3ca287be03c603428fe74ca6695dde27'
-  })
+  const loaderIOToken = process.env.LOADER_IO_TOKEN
+  if (loaderIOToken) {
+    api.get(`/${loaderIOToken}.txt`, async (ctx, next) => {
+      /*
+      * Route to serve verification by the Loader TaaS
+      */
+      ctx.type = 'text/plain'
+      ctx.body = loaderIOToken
+    })
+  }
 
   api.get('/ddf-service-directory', (ctx, next) => {
     ctx.body = {
