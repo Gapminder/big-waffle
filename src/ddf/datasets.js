@@ -66,19 +66,22 @@ class DDFSchema {
     /*
      * The ddfQuery should have a 'select: {key: ["key", "value"], value: []}'
      */
-    const kindDef = this[kind] || {}
+    const kinds = kind === '*' ? ['concepts', 'entities', 'datapoints'] : [kind]
     const results = []
-    for (const keyTuple of Object.keys(kindDef)) {
-      const key = keyTuple.split('$')
-      results.push(...kindDef[keyTuple].values.map(v => {
-        return [key, v] // this is a row in the results
-      }))
-    }
+    kinds.forEach(kindName => {
+      const kindDef = this[kindName] || {}
+      for (const keyTuple of Object.keys(kindDef)) {
+        const key = keyTuple.split('$')
+        results.push(...kindDef[keyTuple].values.map(v => {
+          return [key, v] // this is a row in the results
+        }))
+      }
+    })
     return results
   }
 
   queryStream (ddfQuery) {
-    const re = /([a-z]+)\.schema/
+    const re = /([a-z]+|\*)\.schema/
     const fromClause = re.exec(ddfQuery.from)
     if (!fromClause) {
       throw QuerySyntaxError.WrongFrom(ddfQuery)

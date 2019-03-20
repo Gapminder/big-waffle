@@ -64,7 +64,7 @@ class Query {
   }
 
   get isForSchema () {
-    const re = /([a-z]+)\.schema/
+    const re = /([a-z]+|\*)\.schema/
     return re.test(this.from)
   }
 

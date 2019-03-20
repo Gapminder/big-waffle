@@ -128,6 +128,23 @@ describe('DDF Service', function () {
           response.body.rows.should.contain.one.deep.equal([['concept'], 'concept_type'])
         })
     })
+    it('full schema', function () {
+      return client.query({
+        select: { key: ['key', 'value'], value: [] },
+        from: '*.schema'
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['key', 'value'])
+          response.body.rows.should.have.lengthOf(63)
+          response.body.rows.should.contain.one.deep.equal([['concept'], 'scales'])
+          response.body.rows.should.contain.one.deep.equal([['city'], 'longitude'])
+          response.body.rows.should.contain.one.deep.equal([['country', 'gender', 'time'], 'population'])
+        })
+    })
     it('fetch entities with domains', function () {
       return client.query({
         select: { key: ['concept'], value: ['domain'] },
