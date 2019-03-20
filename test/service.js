@@ -192,5 +192,60 @@ describe('DDF Service', function () {
           response.body.rows.should.contain.one.eql(['hongkong', 'female', 1991, 567890])
         })
     })
+    it('query with join on non-domain', function () {
+      return client.query({
+        select: { key: ['city', 'gender', 'time'], value: ['population'] },
+        from: 'datapoints',
+        where: {
+          $and: [{ city: '$city' }]
+        },
+        join: {
+          $city: {
+            key: 'city',
+            where: { latitude: { $lt: 25 } }
+          }
+        },
+        order_by: ['population']
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['city', 'gender', 'time', 'population'])
+          response.body.rows.should.have.lengthOf(4)
+          response.body.rows.should.contain.one.eql(['male', 'male', 1991, 12346])
+          response.body.rows.should.contain.one.eql(['hongkong', 'female', 1991, 567890])
+        })
+    })
+    it('query with two joins', function () {
+      return client.query({
+        select: { key: ['country', 'gas', 'time'], value: ['emissions'] },
+        from: 'datapoints',
+        where: {
+          $and: [{ country: '$country' }, { gas: '$gas' }]
+        },
+        join: {
+          $country: {
+            key: 'country',
+            where: { latitude: { $lt: 25 } }
+          },
+          $gas: {
+            key: 'gas',
+            where: { name: 'carbon dioxide' }
+          }
+        },
+        order_by: ['time']
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['country', 'gas', 'time', 'emissions'])
+          response.body.rows.should.have.lengthOf(5)
+          response.body.rows.should.all.include.members(['mwi', 'co2'])
+        })
+    })
   })
 })
