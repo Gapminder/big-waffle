@@ -320,7 +320,7 @@ class DDFSchema {
 
     this._addFilter(filters, ddfQuery.where || {})
 
-    const values = this.definitionFor(ddfQuery.from, key).values
+    const values = [...projection, ...this.definitionFor(ddfQuery.from, key).values]
     const sort = (ddfQuery.order_by || []).reduce((sort, fieldSpec) => {
       if (values.includes(Object.keys(fieldSpec)[0])) {
         sort.push(fieldSpec)
