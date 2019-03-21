@@ -591,7 +591,9 @@ class Dataset {
         if (resolved === false) {
           resolved = true
           // need to return a fake stream that is not yet at it's end
-          resolve(new ArrayStream([{}]))
+          const stream = new ArrayStream([ [] ])
+          stream.cleanUp = (err) => recordStream.cleanUp(err)
+          resolve(stream)
         }
       })
       recordStream.once('data', data => {

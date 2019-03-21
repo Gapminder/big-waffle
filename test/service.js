@@ -288,5 +288,29 @@ describe('DDF Service', function () {
           response.body.rows.should.have.lengthOf(3)
         })
     })
+    it('query with empty result', function () {
+      return client.query({
+        select: { key: ['gender', 'country', 'time'], value: ['population'] },
+        from: 'datapoints',
+        where: {
+          $and: [{ country: '$country' }]
+        },
+        join: {
+          $country: {
+            key: 'country',
+            where: { country: { $in: ['vct'] } }
+          }
+        },
+        order_by: ['time']
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['country', 'gender', 'time', 'population'])
+          response.body.rows.should.be.an('array').with.lengthOf(0)
+        })
+    })
   })
 })
