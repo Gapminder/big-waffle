@@ -228,7 +228,8 @@ class DDFSchema {
           filters.push({ [column]: subFilters })
         }
       } else {
-        const columnName = tableName ? `${tableName}.${column}` : column
+        const tableColumn = this.domains[column] || column
+        const columnName = tableName ? `${tableName}.${tableColumn}` : tableColumn
         let condition = filter[column] // condition is either an object, or one of boolean, number, string or "variable" like '$geo'
         if (typeof condition === 'object') {
           if (Object.keys(condition).length > 1) {
@@ -275,13 +276,11 @@ class DDFSchema {
       throw QueryError.NotSupported()
     }
     // replace key entries that refer to entities to corresponding domains
-    const entityKeys = {}
     const filters = []
     const joins = []
     for (const k of ddfQuery.select.key) {
       const domain = this.domains[k]
       if (domain) {
-        entityKeys[k] = domain // e.g. "country" => "geo"
         if (ddfQuery.from === 'entities') {
           this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } })
         } else {
@@ -291,7 +290,7 @@ class DDFSchema {
         }
       }
     }
-    const key = ddfQuery.select.key.map(k => entityKeys[k] || k)
+    const key = ddfQuery.select.key.map(k => this.domains[k] || k)
     const table = this.tableFor(ddfQuery.from, key)
     if (!table) {
       throw QueryError.NotSupported()
@@ -314,7 +313,7 @@ class DDFSchema {
       } else {
         this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
         let on = joinOn.slice(1)
-        on = entityKeys[on] || on
+        on = this.domains[on] || on
         this._addJoin(joins, foreignTable, on)
       }
     }
@@ -575,6 +574,7 @@ class Dataset {
     }
 
     return new Promise((resolve, reject) => {
+      let resolved = false
       const recordStream = connection.queryStream({ sql, rowsAsArray: true })
       recordStream.cleanUp = (err) => {
         delete recordStream.cleanUp
@@ -586,12 +586,22 @@ class Dataset {
           Log.debug(`Connection ${connection.threadId} released.`)
         })
       }
+      recordStream.once('end', () => {
+        // this happens if there is no data, i.e. the query result is empty
+        if (resolved === false) {
+          resolved = true
+          // need to return a fake stream that is not yet at it's end
+          resolve(new ArrayStream([{}]))
+        }
+      })
       recordStream.once('data', data => {
         recordStream.pause()
         recordStream.unshift(data)
+        resolved = true
         resolve(recordStream)
       })
       recordStream.on('error', err => {
+        resolved = true
         process.nextTick((err) => recordStream.cleanUp(err), err)
         reject(err)
       })
@@ -723,7 +733,11 @@ class Dataset {
       const table = await this._createTableFor(tableDef, translations, datapointTableOptions)
       if (options.onlyParse !== true) {
         await table.dropPrimaryIndex()
-        // TODO: create plain, single column, indexes for elements of the key with a sufficient cardinality, e.g. >= 100;
+        /*
+         * TODO: create plain, single column, indexes
+         * for elements of the key with a sufficient cardinality, e.g. >= 100;
+         * CREATE INDEX geo ON population_age$gender$geo$year_a29faa7(geo);
+         */
       }
       table.cleanUp()
     }
