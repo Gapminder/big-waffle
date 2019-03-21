@@ -309,23 +309,38 @@ class DDFSchema {
       const foreignTable = this.tableFor('entities', typeof joinSpec.key === 'string' ? [joinSpec.key] : joinSpec.key)
       if (!foreignTable) {
         throw QuerySyntaxError.WrongJoin(ddfQuery)
+      } else if (foreignTable === table) {
+        this._addFilter(filters, joinSpec.where)
+      } else {
+        this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
+        let on = joinOn.slice(1)
+        on = entityKeys[on] || on
+        this._addJoin(joins, foreignTable, on)
       }
-      this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
-      let on = joinOn.slice(1)
-      on = entityKeys[on] || on
-      this._addJoin(joins, foreignTable, on)
     }
 
     this._addFilter(filters, ddfQuery.where || {})
 
-    const sort = (ddfQuery.order_by || [])
+    const values = this.definitionFor(ddfQuery.from, key).values
+    const sort = (ddfQuery.order_by || []).reduce((sort, fieldSpec) => {
+      if (values.includes(Object.keys(fieldSpec)[0])) {
+        sort.push(fieldSpec)
+      } else {
+        Log.warn(QueryError.WrongOrderBy(ddfQuery))
+      }
+      return sort
+    }, [])
 
     return table.sqlFor({ projection, joins, filters, sort, language: ddfQuery.language })
   }
 
-  tableFor (kind = 'entities', key = []) {
+  definitionFor (kind = 'entities', key = []) {
     const tableKey = key.map(k => this.domains[k] || k).sort().join('$')
-    const def = this[kind][tableKey]
+    return this[kind][tableKey]
+  }
+
+  tableFor (kind = 'entities', key = []) {
+    const def = this.definitionFor(kind, key)
     const tableOrArgs = def && def.table ? def.table : null
     if (!tableOrArgs) {
       return null

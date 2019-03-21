@@ -12,6 +12,9 @@ class QueryError extends Error {
   static NotSupported (query) {
     return new this(` Query is not supported`, 'QL_NOT_SUPPORTED', query)
   }
+  static WrongOrderBy (query) {
+    return new this(` Query 'order_by' is not acceptable`, 'QL_WRONG_ORDER_BY', query)
+  }
 }
 
 class QuerySyntaxError extends QueryError {

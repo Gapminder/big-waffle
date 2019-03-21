@@ -81,7 +81,7 @@ const Conditions = {
     }
   },
   $in: (col, list) => `${col} IN (${list.map(item => _convertOperand(item)).join(', ')})`,
-  $nin: (col, list) => `${col} IN (${list.map(item => _convertOperand(item)).join(', ')})`
+  $nin: (col, list) => `${col} NOT IN (${list.map(item => _convertOperand(item)).join(', ')})`
 }
 
 class RecordProcessor extends Writable {
@@ -315,7 +315,7 @@ class Table extends Collection {
     let sql = `CREATE OR REPLACE TABLE \`${this.tableName}\` (`
     sql = Object.keys(this._schema).reduce((statement, columnName) => {
       const def = this._schema[columnName]
-      let type = def.sqlType
+      let type = def.sqlType || 'TINYINT' // if sqlType is absent, there was no data for this column anywhere.
       let virtual = ''
       if (def.virtual) {
         type = this._schema[this._column(def.value)].sqlType
@@ -399,11 +399,15 @@ class Table extends Collection {
     return `SELECT ${columns} FROM \`${this.tableName}\`${innerJoin}${where}${order};`
   }
 
-  _prepareRecord (record, _columnNames = {}) {
+  _prepareRecord (record, _columnNames = {}, removeNulls = true) {
     const preparedRecord = Object.assign({}, record)
     for (const field of Object.keys(record)) {
       if (preparedRecord[field] === '' || preparedRecord[field] === undefined || preparedRecord[field] === null) {
-        delete preparedRecord[field]
+        if (removeNulls) {
+          delete preparedRecord[field]
+        } else {
+          preparedRecord[field] = null
+        }
         continue
       }
       if (_columnNames[field]) {
@@ -625,7 +629,7 @@ END;`
     /*
      * Update the schema with the data from this record.
      */
-    const preparedRecord = this._prepareRecord(record, keyMap)
+    const preparedRecord = this._prepareRecord(record, keyMap, false)
     for (const column of Object.keys(preparedRecord)) {
       const columnName = language ? (this.keys.has(column) ? column : `_${column}--${language}`) : column
       let def = this._schema[columnName]
