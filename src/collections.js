@@ -229,14 +229,12 @@ class Table extends Collection {
     let fieldDef = this._schema[colName]
     if (fieldDef.sqlType === `VARCHAR`) {
       return (fieldDef.size) * 2 + 2
-    } else if (fieldDef.sqlType === `INTEGER`) {
-      return 2
-    } else if (fieldDef.sqlType === `BIGINT`) {
+    } else if (['TINYINT', 'INTEGER', 'BIGINT'].includes(fieldDef.sqlType)) {
       return 4
     } else if (fieldDef.sqlType === `DOUBLE`) {
       return 8
     } else if (fieldDef.sqlType === `BOOLEAN`) {
-      return 1
+      return 4
     } else if ([`JSON`, `TEXT`, `BLOB`].includes(fieldDef.sqlType)) {
       return 0
     } else if (fieldDef.virtual) {
@@ -301,6 +299,29 @@ class Table extends Collection {
     return this
   }
 
+  updateSchemaWithColumns (columnNames = []) {
+    /*
+     * Ensure that the schema has a valid definition for each of
+     * the given column names.
+     *
+     * When the schema was created by scanning datafiles there may be
+     * columns for which no data was encountered. For these columns
+     * 1 byte TINYINT columns will be added.
+     */
+    const table = this
+    columnNames.forEach(columnName => {
+      let def = this._schema[columnName]
+      if (!def) {
+        def = {}
+        this._schema[columnName] = def
+        Log.warn(`DDF schema declared spurious value '${columnName}' for ${table.name}`)
+      }
+      if (!def.virtual && !def.sqlType) {
+        def.sqlType = 'TINYINT'
+      }
+    })
+  }
+
   async createIn (database, withIndexes = true) {
     // shorten too long columnNames and save mapping
     const _columnNames = this._columnNames
@@ -315,7 +336,7 @@ class Table extends Collection {
     let sql = `CREATE OR REPLACE TABLE \`${this.tableName}\` (`
     sql = Object.keys(this._schema).reduce((statement, columnName) => {
       const def = this._schema[columnName]
-      let type = def.sqlType || 'TINYINT' // if sqlType is absent, there was no data for this column anywhere.
+      let type = def.sqlType
       let virtual = ''
       if (def.virtual) {
         type = this._schema[this._column(def.value)].sqlType
@@ -399,15 +420,11 @@ class Table extends Collection {
     return `SELECT ${columns} FROM \`${this.tableName}\`${innerJoin}${where}${order};`
   }
 
-  _prepareRecord (record, _columnNames = {}, removeNulls = true) {
+  _prepareRecord (record, _columnNames = {}) {
     const preparedRecord = Object.assign({}, record)
     for (const field of Object.keys(record)) {
       if (preparedRecord[field] === '' || preparedRecord[field] === undefined || preparedRecord[field] === null) {
-        if (removeNulls) {
-          delete preparedRecord[field]
-        } else {
-          preparedRecord[field] = null
-        }
+        delete preparedRecord[field]
         continue
       }
       if (_columnNames[field]) {
@@ -629,7 +646,7 @@ END;`
     /*
      * Update the schema with the data from this record.
      */
-    const preparedRecord = this._prepareRecord(record, keyMap, false)
+    const preparedRecord = this._prepareRecord(record, keyMap)
     for (const column of Object.keys(preparedRecord)) {
       const columnName = language ? (this.keys.has(column) ? column : `_${column}--${language}`) : column
       let def = this._schema[columnName]

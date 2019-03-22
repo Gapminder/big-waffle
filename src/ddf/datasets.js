@@ -167,19 +167,21 @@ class DDFSchema {
       const entityDef = this.entities[entityName]
       if (entityDef.domain) {
         if (!domains[entityDef.domain]) {
-          domains[entityDef.domain] = { kind: 'entities', key: [entityDef.domain], resources: [] }
+          domains[entityDef.domain] = { kind: 'entities', key: [entityDef.domain], resources: [], values: [] }
         }
         tableDef = domains[entityDef.domain]
       } else {
         if (!domains[entityName]) {
-          domains[entityName] = { kind: 'entities', key: [entityName], resources: [] }
+          domains[entityName] = { kind: 'entities', key: [entityName], resources: [], values: [] }
         }
         tableDef = domains[entityName]
       }
       tableDef.resources.push(...entityDef.resources)
+      tableDef.values.push(...entityDef.values.filter(v => !!v))
     }
     Object.values(domains).forEach(def => {
       def.resources = [...new Set(def.resources)]
+      def.values = [...new Set(def.values)]
     })
     return Object.values(domains)
   }
@@ -201,14 +203,16 @@ class DDFSchema {
       }
       const tableKey = primaryKey.sort().join('$')
       if (!tables[tableKey]) {
-        tables[tableKey] = { kind: 'datapoints', key: primaryKey, resources: [], entityKeys: [] }
+        tables[tableKey] = { kind: 'datapoints', key: primaryKey, resources: [], entityKeys: [], values: [] }
       }
       tables[tableKey].resources.push(...this.datapoints[schemaKey].resources)
+      tables[tableKey].values.push(...this.datapoints[schemaKey].values)
       // tables[tableKey].entityKeys.push(...mappedEntities)
     }
     Object.values(tables).forEach(def => {
       def.entityKeys = [...new Set(def.entityKeys)]
       def.resources = [...new Set(def.resources)] // TODO: find a way to use only the most specific resource
+      def.values = [...new Set(def.values)]
     })
     return Object.values(tables)
   }
@@ -622,7 +626,7 @@ class Dataset {
     return {}
   }
 
-  async _createTableFor (ddfTable = { kind: 'datapoints', key: [], resources: [] }, translations = {}, options = { onlyParse: false, viaTmpTable: false }) {
+  async _createTableFor (ddfTable = { kind: 'datapoints', key: [], resources: [], values: [] }, translations = {}, options = { onlyParse: false, viaTmpTable: false }) {
     const table = new Table(this._getCollection(ddfTable.key.join('$')), ddfTable.fieldMap, ddfTable.key)
     const files = ddfTable.resources.reduce((files, resourceName) => {
       const resourceDef = this._resources[resourceName]
@@ -636,6 +640,7 @@ class Dataset {
     for (const file of Object.keys(files)) {
       await table.updateSchemaFromCSVFile(file, files[file], translations[file])
     }
+    table.updateSchemaWithColumns(ddfTable.values)
     Log.info(`Expected row size is ${table.estimatedRowSize} bytes`)
     if (options.onlyParse !== true) {
       for (const entityKey of ddfTable.entityKeys || []) {
