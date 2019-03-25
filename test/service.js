@@ -312,5 +312,51 @@ describe('DDF Service', function () {
           response.body.rows.should.be.an('array').with.lengthOf(0)
         })
     })
+    it('query with join on time', function () { // these queries are weird, but (old) vizabi does issue them
+      return client.query({
+        select: { key: ['gender', 'country', 'time'], value: ['population'] },
+        from: 'datapoints',
+        where: {
+          $and: [
+            { country: '$country' },
+            { time: '$time' }
+          ]
+        },
+        join: {
+          $country: {
+            key: 'country',
+            where: { country: { $in: ['fin'] } }
+          },
+          $time: {
+            key: 'time',
+            where: { time: { $gte: 2000 } }
+          }
+        },
+        order_by: ['time']
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['country', 'gender', 'time', 'population'])
+          response.body.rows.should.all.satisfy(r => r[2] >= 2000)
+        })
+    })
+    it('query for translated concepts', function () {
+      return client.query({
+        language: 'fi-FI',
+        select: { key: ['concept'], value: ['description'] },
+        from: 'concepts'
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['concept', 'description'])
+          response.body.rows.should.contain.one.eql(['age', 'Asukasryhmän ikä'])
+        })
+    })
   })
 })
