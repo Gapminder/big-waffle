@@ -23,6 +23,16 @@ class DDFSchema {
     }
   }
 
+  isInTimeDomain (key) {
+    /*
+     * Return true if the given key refers to one of the
+     * built-in time entity sets, or to the time domain.
+     *
+     * @param key: a tuple (an array) of DDF concepts.
+     */
+    return key.length === 1 && ['time', 'year', 'quarter', 'month', 'week', 'day'].includes(key[0])
+  }
+
   toJSON () {
     /*
      * Exclude (list of) resources and change Table instances to plain objects
@@ -309,7 +319,8 @@ class DDFSchema {
       if (!joinSpec) {
         throw QuerySyntaxError.WrongJoin(ddfQuery)
       }
-      const foreignTable = this.tableFor('entities', typeof joinSpec.key === 'string' ? [joinSpec.key] : joinSpec.key)
+      const joinSpecKey = typeof joinSpec.key === 'string' ? [joinSpec.key] : joinSpec.key
+      const foreignTable = this.isInTimeDomain(joinSpecKey) && joinSpecKey.every(p => key.includes(p)) ? table : this.tableFor('entities', joinSpecKey)
       if (!foreignTable) {
         throw QuerySyntaxError.WrongJoin(ddfQuery)
       } else if (foreignTable === table) {
