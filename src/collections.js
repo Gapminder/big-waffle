@@ -253,16 +253,6 @@ class Table extends Collection {
     return size
   }
 
-  indexOn (columnName, primary = false, unique = false) {
-    let columnDefinition = this._schema[columnName]
-    if (!columnDefinition) {
-      columnDefinition = { uniques: new Set() }
-      this._schema[columnName] = columnDefinition
-    }
-    columnDefinition.index = `${primary ? ' PRIMARY' : (unique ? ' UNIQUE' : '')} KEY`
-    this.keys.add(columnName)
-  }
-
   optimizeSchema () {
     // check if it makes sense to pivot one or more of the key columns
     //    let pivots = {}
@@ -278,8 +268,29 @@ class Table extends Collection {
     }
   }
 
-  primaryIndexOn (columnName) {
-    return this.indexOn(columnName, true)
+  async createIndexes (columnsOrMinimumCardinality = 150, database = undefined) {
+    const columns = []
+    if (typeof columnsOrMinimumCardinality === 'number') {
+      Object.keys(this._schema).forEach(columnName => {
+        const def = this._schema[columnName]
+        if (def.cardinality && def.cardinality >= columnsOrMinimumCardinality) {
+          columns.push(columnName)
+        }
+      })
+    } else if (columnsOrMinimumCardinality.forEach) {
+      columnsOrMinimumCardinality.forEach(colName => {
+        columns.push(this._column(colName))
+      })
+    }
+
+    if (!columns.length) return
+
+    const sql = `ALTER TABLE \`${this.tableName}\`${columns.map(columnName => ` ADD INDEX IF NOT EXISTS (\`${columnName}\`)`).join(',')};`
+    Log.debug(sql)
+    Log.info(`Creating indexes on ${columns.join(',')}. This may take a while!`)
+    const conn = await this.getConnection(database)
+    Log.info(`Created indexes on ${columns.join(',')}`)
+    await conn.query(sql)
   }
 
   async setPrimaryIndexTo (columns, database = undefined) {
@@ -352,17 +363,6 @@ class Table extends Collection {
     Log.debug(sql)
     const conn = await this.getConnection(database)
     await conn.query(sql)
-  }
-
-  async createIndexesIn (database) {
-    for (const columnName of Object.keys(this._schema)) {
-      const def = this._schema[columnName]
-      if (def.index) {
-        const sql = `CREATE INDEX \`${columnName}_idx ON\` \`${this.tableName}\` (\`${columnName}\`);`
-        Log.debug(sql)
-        await (database || this._database).query(sql)
-      }
-    }
   }
 
   _sqlForFilter (filter, foreignTables = {}, language = undefined) {
@@ -648,10 +648,11 @@ END;`
      */
     const preparedRecord = this._prepareRecord(record, keyMap)
     for (const column of Object.keys(preparedRecord)) {
-      const columnName = language ? (this.keys.has(column) ? column : `_${column}--${language}`) : column
+      const columnInKey = this.keys.has(column)
+      const columnName = language ? (columnInKey ? column : `_${column}--${language}`) : column
       let def = this._schema[columnName]
       if (!def) {
-        def = { uniques: new Set(), count: 0 }
+        def = columnInKey ? { uniques: new Set(), count: 0 } : {}
         if (language) {
           /*
            * Add another column, which will be virtual,
@@ -667,13 +668,16 @@ END;`
         this._schema[columnName] = def
       }
       const typicalValue = preparedRecord[column]
-      if (def.cardinality === undefined || def.cardinality < 201) {
+
+      // update cardinality estimate for columns in the key
+      if (def.uniques && (def.cardinality === undefined || def.cardinality < 201)) {
         def.uniques.add(typicalValue)
         def.cardinality = def.uniques.size
         if (def.cardinality > 200) {
           delete def.uniques
         }
       }
+
       if (typeof typicalValue === 'number') {
         if (Number.isInteger(typicalValue)) {
           if (!def.sqlType || def.sqlType === `INTEGER`) {

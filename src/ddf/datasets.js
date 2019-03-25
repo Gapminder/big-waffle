@@ -751,11 +751,7 @@ class Dataset {
       const table = await this._createTableFor(tableDef, translations, datapointTableOptions)
       if (options.onlyParse !== true) {
         await table.dropPrimaryIndex()
-        /*
-         * TODO: create plain, single column, indexes
-         * for elements of the key with a sufficient cardinality, e.g. >= 100;
-         * CREATE INDEX geo ON population_age$gender$geo$year_a29faa7(geo);
-         */
+        await table.createIndexes()
       }
       table.cleanUp()
     }
