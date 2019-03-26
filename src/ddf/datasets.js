@@ -340,7 +340,7 @@ class DDFSchema {
       if (values.includes(Object.keys(fieldSpec)[0])) {
         sort.push(fieldSpec)
       } else {
-        Log.warn(QueryError.WrongOrderBy(ddfQuery))
+        ddfQuery.warn(QueryError.WrongOrderBy(ddfQuery))
       }
       return sort
     }, [])
@@ -605,6 +605,7 @@ class Dataset {
         // this happens if there is no data, i.e. the query result is empty
         if (resolved === false) {
           resolved = true
+          ddfQuery.info(`DB found 0 records`)
           // need to return a fake stream that is not yet at it's end
           const stream = new ArrayStream([ [] ])
           stream.cleanUp = (err) => recordStream.cleanUp(err)

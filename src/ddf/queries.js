@@ -10,6 +10,7 @@ class Query {
     this.validateSyntax()
     this.select.key.sort()
     this.select.value.sort()
+    Log.wrap(this)
   }
 
   validateSyntax () {
@@ -133,9 +134,10 @@ class RecordPrinter extends Transform {
   _flush (callback) {
     try {
       this.push(`\n]`)
-      if (this._log) {
-        Object.keys(this._log).forEach(logLevel => {
-          this.push(`,"${logLevel}":${JSON.stringify(this._log[logLevel])}`)
+      const log = this.query.log
+      if (log) {
+        Object.keys(log).forEach(logLevel => {
+          this.push(`,"${logLevel}":${JSON.stringify(log[logLevel])}`)
         })
       }
       this.push('}')
