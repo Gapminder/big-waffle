@@ -14,6 +14,7 @@
     "test-service": "LOG_LEVEL=warn DB_CONNECTION_TIMEOUT=15 mocha test/service.js"
   },
   "dependencies": {
+    "@google-cloud/logging-bunyan": "^0.10.1",
     "@google-cloud/storage": "^2.4.2",
     "argparse": "^1.0.10",
     "bunyan": "^1.8.12",

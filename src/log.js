@@ -10,7 +10,20 @@ const mainLog = Bunyan.createLogger({
   serializers: Bunyan.stdSerializers
 })
 
-// TODO: add stream to log to Google Cloud Logging in case this is a production server
+/*
+ * Add stream to log to external logger if so configured.
+ *
+ * The LOG_EXTERNAL environment variable should contain a reference
+ * to a module with as default export a function that when given a
+ * Bunyan logger will add one or more streams to the logger.
+ */
+if (env.ExternalLogger !== 'none') {
+  try {
+    require(env.ExternalLogger)(mainLog)
+  } catch (err) {
+    mainLog.error(err, `Could not load external logger for ${env.ExternalLogger}`)
+  }
+}
 
 class LogCollector extends Writable {
   /*

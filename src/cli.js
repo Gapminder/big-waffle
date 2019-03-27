@@ -31,9 +31,6 @@ function load (name, version, dirPath, options) {
         await Slack(msg)
       }
     })
-    .finally(() => {
-      DB.end()
-    })
 }
 
 const parser = new ArgumentParser({
@@ -172,8 +169,13 @@ async function run () {
 }
 
 run()
-  .then(res => process.exit(0))
+  .then(res => {
+    process.exitCode = 0
+  })
   .catch(err => {
     console.error(err)
-    process.exit(1)
+    process.exitCode = 1
+  })
+  .finally(() => {
+    DB.end()
   })
