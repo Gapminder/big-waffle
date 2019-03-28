@@ -307,9 +307,29 @@ describe('DDF Service', function () {
         .expect(200)
         .then(response => {
           response.body.should.be.an('object')
-          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.should.have.keys(['header', 'rows', 'version', 'info'])
           response.body.header.should.have.members(['country', 'gender', 'time', 'population'])
           response.body.rows.should.be.an('array').with.lengthOf(0)
+        })
+    })
+    it('query requesting incorrect order', function () {
+      return client.query({
+        select: { key: ['city', 'time'], value: ['population'] },
+        from: 'datapoints',
+        where: {
+          time: { $gte: 2000, $lte: 2015 }
+        },
+        order_by: ['year'] // 'year' is not in the select!
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version', 'warn']) // should have the warning!
+          response.body.header.should.have.members(['city', 'time', 'population'])
+          response.body.rows.should.have.lengthOf(2)
+          response.body.rows.should.contain.one.eql(['male', 2000, 34567])
+          response.body.rows.should.contain.one.eql(['mariehamn_ala', 2000, 12345])
         })
     })
     it('query with join on time', function () { // these queries are weird, but (old) vizabi does issue them
