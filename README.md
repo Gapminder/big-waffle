@@ -16,6 +16,9 @@ BigWaffle is configured by environment variables; so you can set those in your i
 ```HTTP_PORT```: the port that the HTTP service will listen on, defaults to `80`
 ```CACHE_ALLOW```: if set to "FALSE" the server will indicate to client to not cache DDF query results. The default is "TRUE". Setting this to "FALSE" may be useful in testing and debugging.
 ```DB_SOCKET_PATH```: the path to the MariaDb socket used by clients. Needed if you want to use Unix socket authentication in MariaDb.
+```SLACK_CHANNEL_URL```: the URL of a [Slack incoming webhook](https://api.slack.com/incoming-webhooks#posting_with_webhooks). If present the CLI will send notifications to Slack about datasets being loaded.
+```CPU_THROTTLE```: the number of milliseconds that a service thread can be busy before it responds with a 503. Set this to 0 to disable the check. Defaults to 200 ms.
+```DB_THROTTLE```: the number of queries that can be pending (waiting for a DB connection) before the service responds with 503. Defaults to 10, set to 0 to disable the check.
 
 ### Setup cloud storage
 

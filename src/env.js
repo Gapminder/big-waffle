@@ -15,6 +15,8 @@ function getEnvironmentVariable (key, _default) {
 const envVars = [
   { name: 'LogLevel', envVar: 'LOG_LEVEL', _default: 'info' }, // one of 'trace', 'debug', 'info', 'warn', 'error', 'fatal'
   { name: 'MaintenanceMode', envVar: 'MAINTENANCE_MODE', _default: false },
+  { name: 'CPUThrottle', envVar: 'CPU_THROTTLE', _default: 200 }, // set to 0 to disable
+  { name: 'DBThrottle', envVar: 'DB_THROTTLE', _default: 5 }, // set to 0 to disable
   { name: 'ExternalLogger', envVar: 'EXTERNAL_LOG', _default: 'none' }, // Could be 'Google Cloud', etc.
   { name: 'HTTPPort', envVar: 'HTTP_PORT', _default: 80 },
   { name: 'AllowCaching', envVar: 'CACHE_ALLOW', _default: true },

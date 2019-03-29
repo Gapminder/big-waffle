@@ -11,7 +11,7 @@ const Urlon = require('urlon')
 
 const { DB } = require('./maria')
 const { Dataset, Query, RecordPrinter } = require('./ddf')
-const { AllowCaching, HTTPPort } = require('./env')
+const { AllowCaching, HTTPPort, CPUThrottle, DBThrottle } = require('./env')
 const Log = require('./log')('service')
 
 module.exports.DDFService = function (forTesting = false) {
@@ -155,21 +155,23 @@ module.exports.DDFService = function (forTesting = false) {
 
   if (forTesting !== true) { // when running tests it's generally nicer to run without throttling to avoid a lot of logging.
     const TooBusy = require('toobusy-js')
-    TooBusy.maxLag(100)
-    TooBusy.interval(250)
-    TooBusy.onLag(currentLag => {
-      if (currentLag > 200) {
-        Log.warn(`Event loop lag ${currentLag}ms`)
-      } else {
-        Log.info(`Event loop lag ${currentLag}ms`)
-      }
-    })
+    if (CPUThrottle) {
+      TooBusy.maxLag(CPUThrottle)
+      TooBusy.interval(250)
+      TooBusy.onLag(currentLag => {
+        if (currentLag > 200) {
+          Log.warn(`Event loop lag ${currentLag}ms`)
+        } else {
+          Log.info(`Event loop lag ${currentLag}ms`)
+        }
+      })
+    }
     app.use(async (ctx, next) => {
       /*
       * Simple check to prevent from this worker to be flooded with requests.
       * This as DDF queries usually take significant amounts of time to process
       */
-      if (TooBusy() || DB.taskQueueSize() >= 5) {
+      if ((CPUThrottle && TooBusy()) || (DBThrottle && DB.taskQueueSize() >= DBThrottle)) {
         Log.info(`Too busy!`)
         ctx.throw(503, `Sorry, the DDF Service is too busy, try again later`)
       }
