@@ -1,0 +1,9 @@
+# Instructions to Google Cloud Build to build and test
+# This step builds the container image.
+- name: 'gcr.io/cloud-builders/docker'
+  id: Build
+  args:
+  - 'build'
+  - '-t'
+  - 'gcr.io/$PROJECT_ID/big-waffle:$SHORT_SHA'
+  - '.'
