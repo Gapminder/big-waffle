@@ -1,4 +1,5 @@
 # Instructions to Google Cloud Build to build and test
+steps:
 # This step builds the container image.
 - name: 'gcr.io/cloud-builders/docker'
   id: Build
