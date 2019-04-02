@@ -88,7 +88,9 @@ function makeLogging (obj, logger = mainLog, options = { include: ['msg', 'time'
   })
   Object.keys(Bunyan.levelFromName).forEach(level => {
     Object.defineProperty(obj, level, {
-      value: (record) => objLog[level](record)
+      value: function () {
+        objLog[level](...arguments)
+      }
     })
   })
   return obj

@@ -554,7 +554,7 @@ class Dataset {
     return this
   }
 
-  async queryStream (ddfQuery, abortCheck = () => false, start = undefined) {
+  async queryStream (ddfQuery, abortCheck = () => false) {
     /*
      * response for {select: {key: ['key', 'value'], value: []}, from: 'concepts.schema'} should be an array with the column names
      * of the concepts. Like [{key: ['concept'], value: 'color'}, {key: ['concept'], value: 'concept_type'}, ....]
@@ -621,6 +621,7 @@ class Dataset {
       recordStream.on('error', err => {
         resolved = true
         process.nextTick((err) => recordStream.cleanUp(err), err)
+        err.sql = sql
         reject(err)
       })
     })

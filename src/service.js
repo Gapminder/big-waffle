@@ -77,7 +77,7 @@ module.exports.DDFService = function (forTesting = false) {
 
   api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)?', async (ctx, next) => {
     Log.debug('Received DDF query')
-    const start = Moment()
+    const received = Moment()
     let ddfQuery, json
     let version = ctx.params.version
     try {
@@ -89,14 +89,15 @@ module.exports.DDFService = function (forTesting = false) {
       } catch (urlonError) {
         json = JSON.parse(decodeURIComponent(ctx.querystring))
       }
-      Log.info({ query: json })
+      Log.debug({ query: json })
       ddfQuery = new Query(json)
     } catch (err) {
-      Log.error(err)
+      // malformed queries get logged, but don't raise errors/alarms
+      Log.info(json ? { ddfQuery: json, req: ctx.request, err } : err)
       ctx.throw(400, err instanceof SyntaxError ? `Query is malformed: ${err.message}` : err.message)
     }
 
-    let recordStream
+    let recordStream, queryStart
 
     // make sure that clients that are not very patient don't cause problems
     for (const ev of ['aborted', 'close']) {
@@ -119,7 +120,8 @@ module.exports.DDFService = function (forTesting = false) {
         return
       } else {
         version = dataset.version
-        recordStream = await dataset.queryStream(ddfQuery, () => ctx.headerSent || ctx.req.aborted, start)
+        queryStart = Moment()
+        recordStream = await dataset.queryStream(ddfQuery, () => ctx.headerSent || ctx.req.aborted)
       }
     } catch (err) {
       if (recordStream && recordStream.cleanUp) recordStream.cleanUp(err)
@@ -129,16 +131,23 @@ module.exports.DDFService = function (forTesting = false) {
         Log.warn('DDF query request timed out')
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
       } else {
-        Log.error(err)
+        const payload = { err, req: ctx.request, ddfQuery: json, sql: err.sql }
+        if (err.sql) delete err.sql
+        Log.error(payload)
       }
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
     }
     if (recordStream) {
-      const printer = new RecordPrinter(ddfQuery, ddfQuery.isForData)
+      const queryTime = Moment().diff(queryStart, 'milliseconds')
+      if (queryTime > 1000) {
+        ddfQuery.warn({ ddfQuery: json }, `Slow query, ${queryTime}ms!`)
+      }
+
+      const printer = new RecordPrinter(ddfQuery, ddfQuery.isForData, queryTime)
       printer.datasetVersion = version // to ensure the HTTP response includes the actual version used to answer this query
       printer._destroy = (err) => {
         if (recordStream.cleanUp) recordStream.cleanUp(err)
-        Log.info(`Responded with ${printer.recordCounter} records`)
+        Log.info(`Responded with ${printer.recordCounter} records in ${Moment().diff(received, 'milliseconds')}ms. DB query processing took ${queryTime}ms`)
       }
       ctx.status = 200
       ctx.type = 'application/json'
@@ -176,7 +185,6 @@ module.exports.DDFService = function (forTesting = false) {
         ctx.throw(503, `Sorry, the DDF Service is too busy, try again later`)
       }
       await next()
-      Log.info({ req: ctx.request, res: ctx.response })
     })
   }
 
