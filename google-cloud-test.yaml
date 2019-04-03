@@ -2,7 +2,18 @@
 steps:
 # Clone the repo **including submodules** into the 'bw' directory
 - name: 'gcr.io/cloud-builders/git'
-  args: ['clone', ,'--depth', '1', '--single-branch', '-b', '$BRANCH_NAME', '--recurse-submodules', '--shallow-submodules', 'https://github.com/Gapminder/big-waffle.git', 'bw']
+  id: Clone
+  args:
+  - 'clone'
+  - '--depth'
+  - '1'
+  - '--single-branch'
+  - '-b'
+  - '$BRANCH_NAME'
+  - '--recurse-submodules'
+  - '--shallow-submodules'
+  - 'https://github.com/Gapminder/big-waffle.git'
+  - 'bw'
 # Build the container image that will run tests.
 - name: 'gcr.io/cloud-builders/docker'
   id: Build
