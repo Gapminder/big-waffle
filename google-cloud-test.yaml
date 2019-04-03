@@ -1,6 +1,6 @@
 # Instructions to Google Cloud Build to build and test
 steps:
-# Build the container image.
+# Build the container image that will run tests.
 - name: 'gcr.io/cloud-builders/docker'
   id: Build
   args:
@@ -10,9 +10,10 @@ steps:
   - '-t'
   - 'gcr.io/$PROJECT_ID/big-waffle-test:$SHORT_SHA'
   - '.'
-# Push the image to Container Registry
+# Run the image
 - name: 'gcr.io/cloud-builders/docker'
-  id: Push
+  id: Run
   args:
-  - 'push'
+  - 'run'
+  - '--rm'
   - 'gcr.io/$PROJECT_ID/big-waffle-test:$SHORT_SHA'
