@@ -1,4 +1,4 @@
-# Instructions to Google Cloud Build to build and test
+# Instructions to Google Cloud Build to build, test, and deploy
 steps:
 # Clone the repo **including submodules** into the 'bw' directory
 - name: 'gcr.io/cloud-builders/git'
@@ -45,3 +45,15 @@ steps:
   args:
   - 'push'
   - 'eu.gcr.io/$PROJECT_ID/big-waffle-server:$SHORT_SHA'
+# Roll out the new image to the pods in the cluster
+steps:
+- name: 'gcr.io/cloud-builders/kubectl'
+  id: RollOut
+  args:
+  - 'set'
+  - 'image'
+  - 'deployment/bigwaffle-service'
+  - '*=eu.gcr.io/$PROJECT_ID/big-waffle-server:$SHORT_SHA'
+  env:
+  - 'CLOUDSDK_COMPUTE_ZONE=europe-north1-a'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=service-cluster-bigwaffle'
