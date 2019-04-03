@@ -46,7 +46,6 @@ steps:
   - 'push'
   - 'eu.gcr.io/$PROJECT_ID/big-waffle-server:$SHORT_SHA'
 # Roll out the new image to the pods in the cluster
-steps:
 - name: 'gcr.io/cloud-builders/kubectl'
   id: RollOut
   args:
