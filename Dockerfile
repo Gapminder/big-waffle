@@ -4,7 +4,7 @@ FROM node:alpine as builder
 ## Install build toolchain, install node deps and compile native add-ons
 RUN apk add --no-cache --virtual .gyp python make g++
 COPY package.json ./
-RUN npm install
+RUN npm install --production
 
 FROM node:alpine as app
 

@@ -3,7 +3,7 @@
 /*.sql
 launch.json
 node_modules
-test
+#test
 
 .env
 npm-debug.log

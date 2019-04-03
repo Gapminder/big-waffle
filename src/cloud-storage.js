@@ -10,8 +10,22 @@ class CloudStore {
     return Promise.resolve(`${secure ? 'https' : 'http'}://${this.baseDir || ''}/${reference}`)
   }
 
+  static local () { // For testing, set ASSET_STORE=local
+    return new LocalCloudStore()
+  }
+
   static GCS () {
     return new GoogleCloudStore()
+  }
+}
+
+class LocalCloudStore extends CloudStore {
+  async upload (localPath, remoteName) {
+    return Promise.resolve(remoteName)
+  }
+  async urlFor (reference, secure = false) {
+    // Return a fully URL to the stored reference.
+    return Promise.resolve(`file://${process.cwd()}/${reference}`)
   }
 }
 

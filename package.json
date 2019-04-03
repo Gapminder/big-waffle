@@ -10,8 +10,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test-cli": "mocha test/cli.js",
-    "test-service": "LOG_LEVEL=warn DB_CONNECTION_TIMEOUT=15 mocha test/service.js"
+    "test-cli": "mocha -s 4000 -R list test/cli.js",
+    "test-service": "LOG_LEVEL=warn DB_CONNECTION_TIMEOUT=15 mocha -s 1000 -R list test/service.js"
   },
   "dependencies": {
     "@google-cloud/logging-bunyan": "^0.10.1",
