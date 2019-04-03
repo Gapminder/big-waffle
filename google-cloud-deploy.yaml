@@ -1,0 +1,47 @@
+# Instructions to Google Cloud Build to build and test
+steps:
+# Clone the repo **including submodules** into the 'bw' directory
+- name: 'gcr.io/cloud-builders/git'
+  id: Clone
+  args:
+  - 'clone'
+  - '--depth'
+  - '1'
+  - '--single-branch'
+  - '-b'
+  - '$BRANCH_NAME'
+  - '--recurse-submodules'
+  - '--shallow-submodules'
+  - 'https://github.com/Gapminder/big-waffle.git'
+  - 'bw'
+# Build the container image that will run tests.
+- name: 'gcr.io/cloud-builders/docker'
+  id: BuildTest
+  args:
+  - 'build'
+  - '-f'
+  - 'bw/test/Dockerfile'
+  - '-t'
+  - 'gcr.io/$PROJECT_ID/big-waffle-test:$SHORT_SHA'
+  - 'bw'
+# Run the image, i.e. run the tests
+- name: 'gcr.io/cloud-builders/docker'
+  id: Run
+  args:
+  - 'run'
+  - '--rm'
+  - 'gcr.io/$PROJECT_ID/big-waffle-test:$SHORT_SHA'
+# Build the container image will be deployed to the service cluster.
+- name: 'gcr.io/cloud-builders/docker'
+  id: Build
+  args:
+  - 'build'
+  - '-t'
+  - 'eu.gcr.io/$PROJECT_ID/big-waffle-server:$SHORT_SHA'
+  - '.'
+# Push the image to the registry
+- name: 'gcr.io/cloud-builders/docker'
+  id: Push
+  args:
+  - 'push'
+  - 'eu.gcr.io/$PROJECT_ID/big-waffle-server:$SHORT_SHA'
