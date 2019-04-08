@@ -10,8 +10,7 @@ function load (name, version, dirPath, options) {
   if (version === 'latest') {
     throw new Error(`Cannot use "latest" as a version`)
   }
-  const ds = new Dataset(name, version)
-  return ds.open()
+  return Dataset.open(name, version)
     .then(async function (ds) {
       if (options.assetsOnly) {
         await ds.importAssets(dirPath)
