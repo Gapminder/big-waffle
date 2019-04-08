@@ -527,12 +527,14 @@ class Dataset {
     return `${this.name}_${collectionName}_${this.version}`
   }
 
-  async open (mustExist = false) {
+  async open (mustExist = false, useLatest = false) {
     let sql = `SELECT name, version, definition FROM datasets WHERE name = '${this.name}'`
-    if (this.version) {
-      sql += ` AND version = '${this.version}'`
+    if (useLatest) {
+      sql += ` ORDER BY imported DESC;`
+    } else if (this.version) {
+      sql += ` AND version = '${this.version}';`
     } else {
-      sql += ` ORDER BY is__default DESC, imported DESC` // if there is no default use the most recently imported version
+      sql += ` ORDER BY is__default DESC, imported DESC;` // if there is no default use the most recently imported version
     }
 
     const docs = await DB.query(sql)

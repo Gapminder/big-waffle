@@ -7,6 +7,9 @@ const { Dataset } = require('./ddf/datasets')
 const { Slack } = require('./notifications')
 
 function load (name, version, dirPath, options) {
+  if (version === 'latest') {
+    throw new Error(`Cannot use "latest" as a version`)
+  }
   const ds = new Dataset(name, version)
   return ds.open()
     .then(async function (ds) {
@@ -14,8 +17,7 @@ function load (name, version, dirPath, options) {
         await ds.importAssets(dirPath)
       } else {
         if (!ds.isNew && version) {
-          console.error(`Dataset ${name}.${version} already exists`)
-          return
+          throw new Error(`Dataset ${name}.${version} already exists`)
         }
         if (!ds.isNew || !version) {
           ds.incrementVersion()
@@ -173,7 +175,7 @@ run()
     process.exitCode = 0
   })
   .catch(err => {
-    console.error(err)
+    console.info(`Error: ${err.message}`)
     process.exitCode = 1
   })
   .finally(() => {

@@ -110,8 +110,8 @@ module.exports.DDFService = function (forTesting = false) {
 
     try {
       Log.debug(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      const dataset = new Dataset(ctx.params.dataset, version)
-      await dataset.open(true)
+      const dataset = new Dataset(ctx.params.dataset, version === 'latest' ? undefined : version)
+      await dataset.open(true, version === 'latest')
       if (ctx.headerSent || ctx.req.aborted) {
         return
       }
