@@ -361,7 +361,7 @@ class DDFSchema {
     } else if (tableOrArgs instanceof Table) {
       return tableOrArgs
     } else {
-      def.table = new Table(tableOrArgs)
+      def.table = Table.specifiedBy(tableOrArgs)
       return def.table
     }
   }
@@ -640,7 +640,7 @@ class Dataset {
   }
 
   async _createTableFor (ddfTable = { kind: 'datapoints', key: [], resources: [], values: [] }, translations = {}, options = { onlyParse: false, viaTmpTable: false }) {
-    const table = new Table(this._getCollection(ddfTable.key.join('$')), ddfTable.fieldMap, ddfTable.key)
+    let table = new Table(this._getCollection(ddfTable.key.join('$')), ddfTable.fieldMap, ddfTable.key)
     const files = ddfTable.resources.reduce((files, resourceName) => {
       const resourceDef = this._resources[resourceName]
       if (!resourceDef) {
@@ -662,7 +662,7 @@ class Dataset {
         // these columns are filled once the table has been loaded
       }
       try {
-        await table.createIn(DB)
+        table = await table.createIn(DB)
         await table.setPrimaryIndexTo(ddfTable.key)
         for (const file of Object.keys(files)) {
           await table.loadCSVFile(file, files[file], translations[file], options.viaTmpTable)

@@ -229,7 +229,7 @@ class Table extends Collection {
     let fieldDef = this._schema[colName]
     if (fieldDef.sqlType === `VARCHAR`) {
       return (fieldDef.size) * 2 + 2
-    } else if (['TINYINT', 'INTEGER', 'BIGINT'].includes(fieldDef.sqlType)) {
+    } else if (['TINYINT', 'INTEGER', 'BIGINT', 'FLOAT'].includes(fieldDef.sqlType)) {
       return 4
     } else if (fieldDef.sqlType === `DOUBLE`) {
       return 8
@@ -334,6 +334,12 @@ class Table extends Collection {
   }
 
   async createIn (database, withIndexes = true) {
+    if (Object.keys(this._schema).length > Table.MaxColumns || this.estimatedRowSize > Table.MaxRowSize) {
+      const wideTable = WideTable.split(this)
+      await wideTable.createIn(database, withIndexes)
+      return wideTable
+    }
+
     // shorten too long columnNames and save mapping
     const _columnNames = this._columnNames
     for (const columnName of Object.keys(this._schema)) {
@@ -363,6 +369,7 @@ class Table extends Collection {
     Log.debug(sql)
     const conn = await this.getConnection(database)
     await conn.query(sql)
+    return this
   }
 
   _sqlForFilter (filter, foreignTables = {}, language = undefined) {
@@ -618,15 +625,21 @@ END;`
     return this
   }
 
-  addColumn (name, sqlType = 'BOOLEAN', size) {
+  addColumn (nameOrObject, sqlType = 'BOOLEAN', size) {
+    const name = nameOrObject.name || nameOrObject
     if (this._schema[name]) {
       throw new Error(`Table ${this.name} already has a '${name}' column!`)
     }
-    this._schema[name] = { sqlType }
+    const def = { sqlType }
     if (size) {
-      this._schema[name].size = size
+      def.size = size
       // TODO: adjust type based on size
     }
+    if (nameOrObject.sqlType) {
+      Object.assign(def, nameOrObject)
+      if (def.name) delete def.name
+    }
+    this._schema[name] = def
   }
 
   async updateFromJoin (foreignTable, sharedColumn, columns) {
@@ -761,7 +774,53 @@ END;`
         return this
       })
   }
+
+  get schema () {
+    Object.entries(this._schema || {}).map(propValue => {
+      propValue[1].name = propValue[0]
+      return propValue[1]
+    })
+  }
+
+  static specifiedBy (spec) {
+    return spec.tables ? new WideTable(spec) : new this(spec)
+  }
 }
+Table.MaxColumns = 1000
+Table.MaxRowSize = 8000
+
+class WideTable extends Collection {
+  constructor (specification) {
+    super(specification.name)
+    Object.assign(this, specification)
+  }
+
+  static split (aTable) {
+    const spec = {
+      name: aTable.name,
+      keys: aTable.keys,
+      tables: []
+    }
+
+    let table, nrColumns, rowSize
+    table.schema.forEach(colDef => {
+      if (!table) {
+        table = new Table(`${spec.name}_${WideTable.suffixes[spec.tables.length]}`)
+        spec.tables.push(table)
+        nrColumns = 0
+        rowSize = 0
+      }
+      table.addColumn(colDef)
+      nrColumns++
+      rowSize += table.estimatedColumnSize(colDef.name)
+      if (nrColumns >= Table.MaxColumns || rowSize >= Table.MaxRowSize) {
+        table = null // next column will go into a new table
+      }
+    })
+    return new this(spec)
+  }
+}
+WideTable.Suffixes = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
 
 Object.assign(exports, {
   Table
