@@ -56,8 +56,7 @@ module.exports.DDFService = function (forTesting = false) {
   api.get('/:dataset([-a-z_0-9]+)/:version([-a-z_0-9]+)?/assets/:asset([-a-z_0-9.]+)', async (ctx, next) => {
     try {
       Log.debug(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      const dataset = new Dataset(ctx.params.dataset, ctx.params.version)
-      await dataset.open(true)
+      const dataset = await Dataset.open(ctx.params.dataset, ctx.params.version, true)
       if (!ctx.params.version) {
         ctx.redirect(`/${dataset.name}/${dataset.version}/assets/${ctx.params.asset}`)
       } else {
@@ -110,8 +109,7 @@ module.exports.DDFService = function (forTesting = false) {
 
     try {
       Log.debug(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      const dataset = new Dataset(ctx.params.dataset, version)
-      await dataset.open(true)
+      const dataset = await Dataset.open(ctx.params.dataset, ctx.params.version, true)
       if (ctx.headerSent || ctx.req.aborted) {
         return
       }

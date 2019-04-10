@@ -47,10 +47,16 @@ describe('CLI', function () {
       const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2' })
     })
-    it('Report error when trying to load same and version', function () {
+    it('Report error when trying to load existing dataset and version', function () {
       const nrOfDatasets = list('test').length
-      const scriptOutput = loadTestData('test', 0, 'v2')
-      scriptOutput.toString().should.not.match(/error/i)
+      const testfn = () => loadTestData('test', 0, 'v2')
+      testfn.should.throw()
+      list('test').should.be.an('array').with.lengthOf(nrOfDatasets)
+    })
+    it(`Report error when trying to load with "latest" as version`, function () {
+      const nrOfDatasets = list('test').length
+      const testfn = () => loadTestData('test', 0, 'latest')
+      testfn.should.throw()
       list('test').should.be.an('array').with.lengthOf(nrOfDatasets)
     })
   })

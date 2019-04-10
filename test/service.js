@@ -78,22 +78,6 @@ describe('DDF Service', function () {
           response.body.should.be.like({ version: 'v1' })
         })
     })
-    it('very long indicator name', function () {
-      return client.query({
-        select: { key: ['country', 'gas', 'time'], value: ['emissions_as_an_extremely_long_indicator_name_of_60plus_chars'] },
-        from: 'datapoints',
-        order_by: ['time']
-      })
-        .set('Accept', 'application/json')
-        .expect(200)
-        .then(response => {
-          response.body.should.be.an('object')
-          response.body.should.have.keys(['header', 'rows', 'version'])
-          response.body.header.should.have.members(['country', 'gas', 'time', 'emissions_as_an_extremely_long_indicator_name_of_60plus_chars'])
-          response.body.rows.should.have.lengthOf(18)
-        })
-    })
-
     it('set default version', function () {
       execFileSync('node', ['src/cli.js', 'make-default', 'test', todaysVersion], cliOptions)
       return client.query({
@@ -392,6 +376,34 @@ describe('DDF Service', function () {
           response.body.should.have.keys(['header', 'rows', 'version'])
           response.body.header.should.have.members(['concept', 'description'])
           response.body.rows.should.contain.one.eql(['age', 'Asukasryhmän ikä'])
+        })
+    })
+    it('very long indicator name', function () {
+      return client.query({
+        select: { key: ['country', 'gas', 'time'], value: ['emissions_as_an_extremely_long_indicator_name_of_60plus_chars'] },
+        from: 'datapoints',
+        order_by: ['time']
+      }, 'v1')
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['country', 'gas', 'time', 'emissions_as_an_extremely_long_indicator_name_of_60plus_chars'])
+          response.body.rows.should.have.lengthOf(18)
+        })
+    })
+    it('query latest version', function () {
+      return client.query({
+        select: { key: ['key', 'value'], value: [] },
+        from: '*.schema'
+      }, 'latest')
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.version.should.eql('v1')
         })
     })
   })

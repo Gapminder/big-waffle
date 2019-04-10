@@ -527,31 +527,35 @@ class Dataset {
     return `${this.name}_${collectionName}_${this.version}`
   }
 
-  async open (mustExist = false) {
-    let sql = `SELECT name, version, definition FROM datasets WHERE name = '${this.name}'`
-    if (this.version) {
-      sql += ` AND version = '${this.version}'`
+  static async open (name, version = undefined, mustExist = false) {
+    let sql = `SELECT name, version, definition FROM datasets WHERE name = '${name}'`
+    if (version === 'latest') {
+      sql += ` ORDER BY imported DESC;`
+    } else if (version) {
+      sql += ` AND version = '${version}';`
     } else {
-      sql += ` ORDER BY is__default DESC, imported DESC` // if there is no default use the most recently imported version
+      sql += ` ORDER BY is__default DESC, imported DESC;` // if there is no default use the most recently imported version
     }
 
+    let dataset
     const docs = await DB.query(sql)
     const doc = docs && docs.length >= 1 ? docs[0] : undefined
     if (doc) {
-      this.version = doc.version
-      this.initialize(JSON.parse(doc.definition))
-      Log.debug(`Loaded dataset ${this.name}.${this.version} from DB`)
-      if (this._isNew) {
-        this._isNew = false
+      dataset = new this(name, doc.version)
+      dataset.initialize(JSON.parse(doc.definition))
+      Log.debug(`Loaded dataset ${dataset.name}.${dataset.version} from DB`)
+      if (dataset._isNew) {
+        dataset._isNew = false
       }
     } else if (mustExist) {
-      const err = new Error(`Dataset "${this.name}${this.version ? `.${this.version}` : ''}" does not exist.`)
+      const err = new Error(`Dataset "${name}${version ? `.${version}` : ''}" does not exist.`)
       err.code = 'DDF_DATASET_NOT_FOUND'
       throw err
     } else {
-      this._isNew = true
+      dataset = new this(name, version === 'latest' ? undefined : version)
+      dataset._isNew = true
     }
-    return this
+    return dataset
   }
 
   async queryStream (ddfQuery, abortCheck = () => false) {

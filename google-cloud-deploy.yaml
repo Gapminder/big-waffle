@@ -56,3 +56,6 @@ steps:
   env:
   - 'CLOUDSDK_COMPUTE_ZONE=europe-north1-a'
   - 'CLOUDSDK_CONTAINER_CLUSTER=service-cluster-bigwaffle'
+# Updating the BigWaffle Master is usually not urgent.
+# It can be accompished by a Cloud Function that subscribes
+# to the 'cloud-builds' topic (see https://cloud.google.com/cloud-build/docs/send-build-notifications).
