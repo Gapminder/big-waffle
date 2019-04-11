@@ -4,6 +4,7 @@ const request = require('supertest')
 const Urlon = require('urlon')
 
 const { HTTPPort, DbConnectionTimeout } = require('../src/env')
+const { setWideTableThreshold } = require('../src/collections')
 
 const cliTimeout = DbConnectionTimeout * 1000 // CLI operations may take up to 5 seconds
 const cliOptions = {
@@ -13,9 +14,10 @@ const cliOptions = {
 }
 
 function loadTestData (name = 'test', version = 0, versionLabel) {
-  const args = ['src/cli.js', 'load', '-d', `test/ddf--testdata/v${version}`, name]
+  const versionString = typeof version === 'number' ? `v${version}` : version
+  const args = ['src/cli.js', 'load', '-d', `test/ddf--testdata/${versionString}`, name]
   if (versionLabel || version) {
-    args.push(versionLabel || `v${version}`)
+    args.push(versionLabel || versionString)
   }
   return execFileSync('node', args, cliOptions)
 }
@@ -33,5 +35,6 @@ function DDFQueryClient (dataset = 'test') {
 module.exports = {
   cliOptions,
   loadTestData,
-  DDFQueryClient
+  DDFQueryClient,
+  setWideTableThreshold
 }

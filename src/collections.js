@@ -130,6 +130,74 @@ class Collection {
     this.name = nameOrObject.name || nameOrObject
     this.keys = new Set()
   }
+
+  cleanUp () {
+    if (this._connection) {
+      this._connection.end()
+      delete this._connection
+    }
+  }
+
+  async getConnection (database) {
+    if (database) {
+      this._database = database
+    }
+    if (this._connection) {
+      return this._connection
+    }
+    this._connection = await this._database.getConnection()
+    return this._connection
+  }
+
+  async tableForCSVFile (path, keyMap = {}, delimiter = ',') {
+    /* Create a (temporary) table for the CSV file, using the CONNECT db engine.
+     *
+     * The CSV table needs column definitions and those are taken from the
+     * schema of this table. There is no check in this method for a proper schema!
+     *
+     * CREATE TABLE aid_given_percent_of_gni (geo CHAR(3) NOT NULL, time INT NOT NULL,
+     * aid_given_percent_of_gni DOUBLE)
+     * engine=CONNECT table_type=CSV file_name='/Users/robert/Projects/Gapminder/ddf--gapminder--systema_globalis/ddf--datapoints--aid_given_percent_of_gni--by--geo--time.csv'
+     * header=1 sep_char=',' quoted=1;
+     */
+    const csvTableName = `TT${Crypto.createHash('md5').update(path).digest('hex')}`
+    const csvHeader = await firstline(path)
+    const csvColumns = this._columns(csvHeader.split(delimiter))
+    const columnDefs = csvColumns.reduce((statement, columnName) => {
+      const def = this._schema[keyMap[columnName] || columnName]
+      let type = def.sqlType
+      if (type === `JSON`) { // JSON type is not supported for CSV files
+        type = `VARCHAR`
+      }
+      if (type === `VARCHAR`) {
+        type = `VARCHAR(${def.size})`
+      }
+      return `${statement} \`${columnName}\` ${type},`
+    }, '')
+    let sql = `CREATE TABLE ${csvTableName} (${columnDefs.slice(0, -1)}) 
+    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
+    Log.debug(sql)
+    const conn = await this.getConnection()
+    await conn.query(sql)
+    return csvTableName
+  }
+
+  toJSON () {
+    /*
+     * Return a plain object that represents this collection
+     * and can be serialized.
+     */
+    const doc = {}
+    if (this._tableName) {
+      doc.tableName = this.tableName
+    }
+    for (const key in this) {
+      if ((key.startsWith('_') || ['keys'].includes(key)) === false) {
+        doc[key] = this[key]
+      }
+    }
+    return doc
+  }
 }
 
 class Table extends Collection {
@@ -206,22 +274,9 @@ class Table extends Collection {
   }
 
   toJSON () {
-    /*
-     * Return a plain object that represents this dataset and
-     * can be saved in a collection.
-     */
-    const doc = {
-      auxillaryColumns: this.auxillaryColumns,
-      mappedColumns: this.mappedColumns
-    }
-    if (this._tableName) {
-      doc.tableName = this.tableName
-    }
-    for (const key in this) {
-      if (key.startsWith('_') === false) {
-        doc[key] = this[key]
-      }
-    }
+    const doc = super.toJSON()
+    doc.auxillaryColumns = this.auxillaryColumns
+    doc.mappedColumns = this.mappedColumns
     return doc
   }
 
@@ -442,24 +497,6 @@ class Table extends Collection {
     return preparedRecord
   }
 
-  async getConnection (database) {
-    if (database) {
-      this._database = database
-    }
-    if (this._connection) {
-      return this._connection
-    }
-    this._connection = await this._database.getConnection()
-    return this._connection
-  }
-
-  cleanUp () {
-    if (this._connection) {
-      this._connection.end()
-      delete this._connection
-    }
-  }
-
   _updateRecord (record, keyMap, language) {
     /*
      * Return a promise!
@@ -564,7 +601,7 @@ END;`
       })
   }
 
-  async loadCSVFile (path, keyMap = {}, translations = {}, viaTmpTable = false, delimiter = ',') {
+  async loadCSVFile (path, columns = [], keyMap = {}, translations = {}, viaTmpTable = false, delimiter = ',') {
     /*
      * Parse all records in the CSV file and insert into this SQL table.
      *
@@ -580,49 +617,38 @@ END;`
       return this.loadFromCSVFile(path, keyMap, translations, delimiter) // slower, but can handle large cells
     }
     // 1. Create a (temporary) table for the CSV file, using the CONNECT db engine.
-    /* CREATE TABLE aid_given_percent_of_gni (geo CHAR(3) NOT NULL, time INT NOT NULL,
-     * aid_given_percent_of_gni DOUBLE)
-     * engine=CONNECT table_type=CSV file_name='/Users/robert/Projects/Gapminder/ddf--gapminder--systema_globalis/ddf--datapoints--aid_given_percent_of_gni--by--geo--time.csv'
-     * header=1 sep_char=',' quoted=1;
+    const tmpTableName = await this.tableForCSVFile(path, keyMap = {}, delimiter = ',')
+    // 2. Copy all records
+    await this.copyValues(columns, tmpTableName)
+    // 3. Delete the temporary table
+    const conn = await this.getConnection()
+    await conn.query(`DROP TABLE \`${tmpTableName}\``)
+    Log.info(`Finished loading ${path} into ${this.tableName}`)
+    return this
+  }
+
+  async copyValues (columns, tableName) {
+    /* Copy the given columns from the given table into this table.
+     *
+     * INSERT INTO dpstest (geo, time, aid_percent)
+     *   SELECT * FROM aid_given_percent_of_gni
+     *   ON DUPLICATE KEY UPDATE dpstest.aid_percent = aid_given_percent_of_gni.aid_given_percent_of_gni;
      */
-    const tmpTableName = `TT${Crypto.createHash('md5').update(path).digest('hex')}`
-    const csvHeader = await firstline(path)
-    const csvColumns = this._columns(csvHeader.split(delimiter))
-    const tableColumns = csvColumns.map(c => keyMap[c] || c)
-    const columnDefs = csvColumns.reduce((statement, columnName) => {
-      const def = this._schema[keyMap[columnName] || columnName]
-      let type = def.sqlType
-      if (type === `JSON`) { // JSON type is not supported for CSV files
-        type = `VARCHAR`
-      }
-      if (type === `VARCHAR`) {
-        type = `VARCHAR(${def.size})`
-      }
-      return `${statement} \`${columnName}\` ${type},`
-    }, '')
-    let sql = `CREATE TABLE ${tmpTableName} (${columnDefs.slice(0, -1)}) 
-    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
+    let sql
+    const values = this._columns(columns.filter(c => this._schema[c]))
+    const keysAndValues = [...this._columns(Array.from(this.keys)), ...values]
+    if (values.length > 0) {
+      const updates = values.map(v => `\`${this.tableName}\`.\`${v}\`=\`${tableName}\`.\`${v}\``)
+      sql = `INSERT INTO \`${this.tableName}\` (${quoted(keysAndValues).join(', ')})
+      SELECT ${quoted(keysAndValues).join(', ')} FROM ${tableName}
+      ON DUPLICATE KEY UPDATE ${updates.join(', ')};`
+    } else {
+      sql = `INSERT IGNORE INTO \`${this.tableName}\` (${quoted(keysAndValues).join(', ')})
+      SELECT ${quoted(keysAndValues).join(', ')} FROM ${tableName};`
+    }
     Log.debug(sql)
     const conn = await this.getConnection()
     await conn.query(sql)
-    // 2. Copy all records
-    /* INSERT INTO dpstest (geo, time, aid_percent)
-      *   SELECT * FROM aid_given_percent_of_gni
-      *   ON DUPLICATE KEY UPDATE dpstest.aid_percent = aid_given_percent_of_gni.aid_given_percent_of_gni;
-      */
-    const updates = tableColumns.filter(c => !this.keys.has(c)).map(c => `\`${this.tableName}\`.\`${c}\` = ${tmpTableName}.\`${c}\``)
-    sql = `
-    INSERT INTO \`${this.tableName}\` (${quoted(tableColumns).join(', ')})
-      SELECT ${quoted(csvColumns).join(', ')} FROM ${tmpTableName}
-      ON DUPLICATE KEY UPDATE ${updates.join(', ')};`
-    Log.debug(sql)
-    await conn.query(sql)
-    // 3. Delete the temporary table
-    sql = `DROP TABLE ${tmpTableName}`
-    Log.debug(sql)
-    await conn.query(sql)
-    Log.info(`Finished loading ${path} into ${this.tableName}`)
-    return this
   }
 
   addColumn (nameOrObject, sqlType = 'BOOLEAN', size) {
@@ -776,7 +802,7 @@ END;`
   }
 
   get schema () {
-    Object.entries(this._schema || {}).map(propValue => {
+    return Object.entries(this._schema || {}).map(propValue => {
       propValue[1].name = propValue[0]
       return propValue[1]
     })
@@ -785,6 +811,10 @@ END;`
   static specifiedBy (spec) {
     return spec.tables ? new WideTable(spec) : new this(spec)
   }
+
+  static setWideTableThreshold (nrColumns = 1000) {
+    Table.MaxColumns = nrColumns
+  }
 }
 Table.MaxColumns = 1000
 Table.MaxRowSize = 8000
@@ -792,7 +822,85 @@ Table.MaxRowSize = 8000
 class WideTable extends Collection {
   constructor (specification) {
     super(specification.name)
+    this.keys = specification.keys
     Object.assign(this, specification)
+  }
+
+  get tables () {
+    return this._tables
+  }
+
+  set tables (listOfTables = []) {
+    this._tables = listOfTables
+    this._schema = {}
+    const keys = Array.from(this.keys)
+    this._tables.forEach(table => {
+      if (!table.values) {
+        table.values = table.schema.map(colDef => colDef.name).filter(colName => keys.includes(colName) !== true)
+      }
+      Object.assign(this._schema, table._schema)
+    })
+  }
+
+  _columns (arrayOfSchemaNames, language) {
+    return this.tables.reduce((cols, table) => {
+      return table._columns(cols, language)
+    }, arrayOfSchemaNames)
+  }
+
+  _tableFor (column) {
+    for (let table of this.tables) {
+      if (table.values.includes(column)) {
+        return table
+      }
+    }
+    return undefined
+  }
+
+  async createIn (database, withIndexes = true) {
+    if (database) {
+      this._database = database
+    }
+    this.tables = await Promise.all(this.tables.map(table => table.createIn(database, withIndexes)))
+    return this
+  }
+
+  async loadCSVFile (path, columns = [], keyMap = {}, translations = {}, viaTmpTable = false, delimiter = ',') {
+    /*
+     * Each table that is part of this wide table should be updated with the key columns in the CSV file
+     * and tables that actually manage any of the given columns should be updated with those columns
+     * in the CSV file.
+     */
+    const tmpTableName = await this.tableForCSVFile(path, keyMap, delimiter)
+    await Promise.all(this.tables.map(table => table.copyValues(columns, tmpTableName)))
+    const conn = await this.getConnection()
+    await conn.query(`DROP TABLE \`${tmpTableName}\``)
+  }
+
+  cleanUp () {
+    super.cleanUp()
+    this.tables.forEach(table => table.cleanUp())
+  }
+
+  async createIndexes (columnsOrMinimumCardinality = 150, database = undefined) {
+    await Promise.all(this.tables.map(table => table.createIndexes(columnsOrMinimumCardinality, database)))
+  }
+
+  async dropPrimaryIndex (database = undefined) {
+    await Promise.all(this.tables.map(table => table.dropPrimaryIndex(database)))
+  }
+
+  async setPrimaryIndexTo (columns, database = undefined) {
+    await Promise.all(this.tables.map(table => table.setPrimaryIndexTo(columns, database)))
+  }
+
+  toJSON () {
+    /*
+     * Return a plain object that represents this (wide) table.
+     */
+    const doc = super.toJSON()
+    doc.tables = this.tables.map(table => table.toJSON())
+    return doc
   }
 
   static split (aTable) {
@@ -802,19 +910,39 @@ class WideTable extends Collection {
       tables: []
     }
 
-    let table, nrColumns, rowSize
-    table.schema.forEach(colDef => {
-      if (!table) {
-        table = new Table(`${spec.name}_${WideTable.suffixes[spec.tables.length]}`)
-        spec.tables.push(table)
-        nrColumns = 0
-        rowSize = 0
-      }
-      table.addColumn(colDef)
-      nrColumns++
-      rowSize += table.estimatedColumnSize(colDef.name)
-      if (nrColumns >= Table.MaxColumns || rowSize >= Table.MaxRowSize) {
-        table = null // next column will go into a new table
+    const allMappedColumns = aTable.mappedColumns
+    let table, mappedColumns, nrColumns, rowSize
+    const keyDefs = Array.from(aTable.keys).map(k => {
+      const def = { name: k }
+      Object.assign(def, aTable._schema[k])
+      return def
+    })
+    aTable.schema.forEach(colDef => {
+      if (aTable.keys.has(colDef.name) === false) {
+        if (!table) {
+          mappedColumns = {}
+          table = new Table(`${spec.name}_${WideTable.Suffixes[spec.tables.length]}`, mappedColumns, aTable.keys)
+          spec.tables.push(table)
+          nrColumns = 0
+          rowSize = 0
+          keyDefs.forEach(keyDef => {
+            table.addColumn(keyDef)
+            if (allMappedColumns[keyDef.name]) {
+              mappedColumns[keyDef.name] = allMappedColumns[keyDef.name]
+            }
+            nrColumns++
+            rowSize += table.estimatedColumnSize(keyDef.name)
+          })
+        }
+        table.addColumn(colDef)
+        if (allMappedColumns[colDef.name]) {
+          mappedColumns[colDef.name] = allMappedColumns[colDef.name]
+        }
+        nrColumns++
+        rowSize += table.estimatedColumnSize(colDef.name)
+        if (nrColumns >= Table.MaxColumns || rowSize >= Table.MaxRowSize) {
+          table = null // next column will go into a new table
+        }
       }
     })
     return new this(spec)
@@ -823,5 +951,6 @@ class WideTable extends Collection {
 WideTable.Suffixes = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
 
 Object.assign(exports, {
-  Table
+  Table,
+  setWideTableThreshold: Table.setWideTableThreshold // used in testing
 })
