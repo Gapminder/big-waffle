@@ -7,6 +7,7 @@ const firstline = require('firstline')
 const { sample, sampleSize } = require('lodash')
 
 const Log = require('./log')('collections')
+const { MaxColumns } = require('./env')
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms)) // helper generator for wait promises
 
@@ -130,6 +131,104 @@ class Collection {
     this.name = nameOrObject.name || nameOrObject
     this.keys = new Set()
   }
+
+  _sqlForFilter (filter, foreignTables = {}, language = undefined) {
+    /*
+     * Return the SQL for one (complex) filter (expression).
+     *
+     * Filters can be nested in that case this function will recurse.
+     */
+    const clauses = []
+    for (const column in filter) {
+      if (['$and', '$or'].includes(column)) { // TODO: add $not and $nor ?
+        const subClauses = []
+        for (const subFilter of filter[column]) {
+          subClauses.push(this._sqlForFilter(subFilter, foreignTables, language))
+        }
+        clauses.push(`(${subClauses.join(` ${column.slice(1).toUpperCase()}`)})`)
+      } else {
+        let qualifiedColumnName = column.split('.')
+        if (qualifiedColumnName.length > 1) {
+          const foreignTable = foreignTables[qualifiedColumnName[0]]
+          qualifiedColumnName = foreignTable._qualified(qualifiedColumnName[1], language)
+        } else {
+          qualifiedColumnName = this._qualified(column, language)
+        }
+        for (const operator in filter[column]) {
+          clauses.push(Conditions[operator](qualifiedColumnName, filter[column][operator]))
+        }
+      }
+      return clauses.join(` AND`)
+    }
+  }
+
+  cleanUp () {
+    if (this._connection) {
+      this._connection.end()
+      delete this._connection
+    }
+  }
+
+  async getConnection (database) {
+    if (database) {
+      this._database = database
+    }
+    if (this._connection) {
+      return this._connection
+    }
+    this._connection = await this._database.getConnection()
+    return this._connection
+  }
+
+  async tableForCSVFile (path, keyMap = {}, delimiter = ',') {
+    /* Create a (temporary) table for the CSV file, using the CONNECT db engine.
+     *
+     * The CSV table needs column definitions and those are taken from the
+     * schema of this table. There is no check in this method for a proper schema!
+     *
+     * CREATE TABLE aid_given_percent_of_gni (geo CHAR(3) NOT NULL, time INT NOT NULL,
+     * aid_given_percent_of_gni DOUBLE)
+     * engine=CONNECT table_type=CSV file_name='/Users/robert/Projects/Gapminder/ddf--gapminder--systema_globalis/ddf--datapoints--aid_given_percent_of_gni--by--geo--time.csv'
+     * header=1 sep_char=',' quoted=1;
+     */
+    const csvTableName = `TT${Crypto.createHash('md5').update(path).digest('hex')}`
+    const csvHeader = await firstline(path)
+    const csvColumns = this._columns(csvHeader.split(delimiter))
+    const columnDefs = csvColumns.reduce((statement, columnName) => {
+      const def = this._schema[keyMap[columnName] || columnName]
+      let type = def.sqlType
+      if (type === `JSON`) { // JSON type is not supported for CSV files
+        type = `VARCHAR`
+      }
+      if (type === `VARCHAR`) {
+        type = `VARCHAR(${def.size})`
+      }
+      return `${statement} \`${columnName}\` ${type},`
+    }, '')
+    let sql = `CREATE TABLE ${csvTableName} (${columnDefs.slice(0, -1)}) 
+    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
+    Log.debug(sql)
+    const conn = await this.getConnection()
+    await conn.query(sql)
+    return csvTableName
+  }
+
+  toJSON () {
+    /*
+     * Return a plain object that represents this collection
+     * and can be serialized.
+     */
+    const doc = {}
+    if (this._tableName) {
+      doc.tableName = this.tableName
+    }
+    for (const key in this) {
+      if ((key.startsWith('_') || ['keys'].includes(key)) === false) {
+        doc[key] = this[key]
+      }
+    }
+    return doc
+  }
 }
 
 class Table extends Collection {
@@ -166,6 +265,12 @@ class Table extends Collection {
 
   _columns (arrayOfSchemaNames, language) {
     return arrayOfSchemaNames.map(n => this._column(n, language))
+  }
+
+  _qualified (colNameorArray, language) {
+    return typeof colNameorArray === 'string'
+      ? quoted(this._column(colNameorArray, language), this.tableName)
+      : colNameorArray.map(n => quoted(this._column(n, language), this.tableName))
   }
 
   get tableName () {
@@ -206,37 +311,28 @@ class Table extends Collection {
   }
 
   toJSON () {
-    /*
-     * Return a plain object that represents this dataset and
-     * can be saved in a collection.
-     */
-    const doc = {
-      auxillaryColumns: this.auxillaryColumns,
-      mappedColumns: this.mappedColumns
-    }
-    if (this._tableName) {
-      doc.tableName = this.tableName
-    }
-    for (const key in this) {
-      if (key.startsWith('_') === false) {
-        doc[key] = this[key]
-      }
-    }
+    const doc = super.toJSON()
+    doc.auxillaryColumns = this.auxillaryColumns
+    doc.mappedColumns = this.mappedColumns
     return doc
   }
 
   estimatedColumnSize (colName) {
     let fieldDef = this._schema[colName]
     if (fieldDef.sqlType === `VARCHAR`) {
-      return (fieldDef.size) * 2 + 2
-    } else if (['TINYINT', 'INTEGER', 'BIGINT'].includes(fieldDef.sqlType)) {
+      let charSize = 1.1
+      if (/^_.+--[a-z]{2}-[a-z]{2}$/i.test(colName)) { // most likely a translated column
+        charSize = 2.2
+      }
+      return Math.round((fieldDef.size) * charSize + 2)
+    } else if (['TINYINT', 'INTEGER', 'BIGINT', 'FLOAT'].includes(fieldDef.sqlType)) {
       return 4
     } else if (fieldDef.sqlType === `DOUBLE`) {
       return 8
     } else if (fieldDef.sqlType === `BOOLEAN`) {
       return 4
     } else if ([`JSON`, `TEXT`, `BLOB`].includes(fieldDef.sqlType)) {
-      return 0
+      return 10
     } else if (fieldDef.virtual) {
       return 0
     } else {
@@ -334,6 +430,12 @@ class Table extends Collection {
   }
 
   async createIn (database, withIndexes = true) {
+    if (Object.keys(this._schema).length > MaxColumns) {
+      const wideTable = WideTable.split(this)
+      await wideTable.createIn(database, withIndexes)
+      return wideTable
+    }
+
     // shorten too long columnNames and save mapping
     const _columnNames = this._columnNames
     for (const columnName of Object.keys(this._schema)) {
@@ -362,45 +464,27 @@ class Table extends Collection {
     sql = `${sql.slice(0, -1)});`
     Log.debug(sql)
     const conn = await this.getConnection(database)
-    await conn.query(sql)
-  }
-
-  _sqlForFilter (filter, foreignTables = {}, language = undefined) {
-    /*
-     * Add the SQL for one filter to the given sql.
-     *
-     * Filters can be nested in that case this function will recurse
-     */
-    const clauses = []
-    for (const column in filter) {
-      if (['$and', '$or'].includes(column)) { // TODO: add $not and $nor ?
-        const subClauses = []
-        for (const subFilter of filter[column]) {
-          subClauses.push(this._sqlForFilter(subFilter, foreignTables, language))
-        }
-        clauses.push(`(${subClauses.join(` ${column.slice(1).toUpperCase()}`)})`)
+    try {
+      await conn.query(sql)
+    } catch (err) {
+      if (['ER_TOO_MANY_FIELDS', 'ER_TOO_BIG_ROWSIZE'].includes(err.code)) {
+        // split the table
+        const wideTable = WideTable.split(this)
+        await wideTable.createIn(database, withIndexes)
+        return wideTable
       } else {
-        let qualifiedColumnName = column.split('.')
-        if (qualifiedColumnName.length > 1) {
-          const foreignTable = foreignTables[qualifiedColumnName[0]]
-          qualifiedColumnName = quoted(foreignTable._column(qualifiedColumnName[1], language), foreignTable.tableName)
-        } else {
-          qualifiedColumnName = quoted(this._column(column, language), this.tableName)
-        }
-        for (const operator in filter[column]) {
-          clauses.push(Conditions[operator](qualifiedColumnName, filter[column][operator]))
-        }
+        throw err
       }
-      return clauses.join(` AND`)
     }
+    return this
   }
 
   sqlFor (query = { language: undefined, projection: [], joins: [], filters: [], sort: [] }) {
     const language = query.language
-    const columns = quoted(this._columns(query.projection, language), this.tableName).join(', ')
+    const columns = this._qualified(query.projection, language).join(', ')
     const innerJoin = query.joins && query.joins.length > 0
       ? query.joins.reduce((sql, join) => {
-        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${quoted(this._column(join.on), this.tableName)}=${quoted(join.inner._column(join.on), join.inner.tableName)}`
+        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${this._qualified(join.on)}=${join.inner._qualified(join.on)}`
         return sql
       }, ` `)
       : ''
@@ -414,7 +498,7 @@ class Table extends Collection {
     const order = query.sort && query.sort.length > 0
       ? `\nORDER BY ${query.sort.map(f => {
         const spec = Object.entries(f)[0] // there should only be one entry
-        return `\`${this._column(spec[0], language)}\` ${spec[1]}`
+        return `${this._qualified(spec[0], language)} ${spec[1]}`
       }).join('AND ')}`
       : ''
     return `SELECT ${columns} FROM \`${this.tableName}\`${innerJoin}${where}${order};`
@@ -433,24 +517,6 @@ class Table extends Collection {
       }
     }
     return preparedRecord
-  }
-
-  async getConnection (database) {
-    if (database) {
-      this._database = database
-    }
-    if (this._connection) {
-      return this._connection
-    }
-    this._connection = await this._database.getConnection()
-    return this._connection
-  }
-
-  cleanUp () {
-    if (this._connection) {
-      this._connection.end()
-      delete this._connection
-    }
   }
 
   _updateRecord (record, keyMap, language) {
@@ -557,7 +623,7 @@ END;`
       })
   }
 
-  async loadCSVFile (path, keyMap = {}, translations = {}, viaTmpTable = false, delimiter = ',') {
+  async loadCSVFile (path, columns = [], keyMap = {}, translations = {}, viaTmpTable = false, delimiter = ',') {
     /*
      * Parse all records in the CSV file and insert into this SQL table.
      *
@@ -573,60 +639,55 @@ END;`
       return this.loadFromCSVFile(path, keyMap, translations, delimiter) // slower, but can handle large cells
     }
     // 1. Create a (temporary) table for the CSV file, using the CONNECT db engine.
-    /* CREATE TABLE aid_given_percent_of_gni (geo CHAR(3) NOT NULL, time INT NOT NULL,
-     * aid_given_percent_of_gni DOUBLE)
-     * engine=CONNECT table_type=CSV file_name='/Users/robert/Projects/Gapminder/ddf--gapminder--systema_globalis/ddf--datapoints--aid_given_percent_of_gni--by--geo--time.csv'
-     * header=1 sep_char=',' quoted=1;
-     */
-    const tmpTableName = `TT${Crypto.createHash('md5').update(path).digest('hex')}`
-    const csvHeader = await firstline(path)
-    const csvColumns = this._columns(csvHeader.split(delimiter))
-    const tableColumns = csvColumns.map(c => keyMap[c] || c)
-    const columnDefs = csvColumns.reduce((statement, columnName) => {
-      const def = this._schema[keyMap[columnName] || columnName]
-      let type = def.sqlType
-      if (type === `JSON`) { // JSON type is not supported for CSV files
-        type = `VARCHAR`
-      }
-      if (type === `VARCHAR`) {
-        type = `VARCHAR(${def.size})`
-      }
-      return `${statement} \`${columnName}\` ${type},`
-    }, '')
-    let sql = `CREATE TABLE ${tmpTableName} (${columnDefs.slice(0, -1)}) 
-    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
-    Log.debug(sql)
-    const conn = await this.getConnection()
-    await conn.query(sql)
+    const tmpTableName = await this.tableForCSVFile(path, keyMap = {}, delimiter = ',')
     // 2. Copy all records
-    /* INSERT INTO dpstest (geo, time, aid_percent)
-      *   SELECT * FROM aid_given_percent_of_gni
-      *   ON DUPLICATE KEY UPDATE dpstest.aid_percent = aid_given_percent_of_gni.aid_given_percent_of_gni;
-      */
-    const updates = tableColumns.filter(c => !this.keys.has(c)).map(c => `\`${this.tableName}\`.\`${c}\` = ${tmpTableName}.\`${c}\``)
-    sql = `
-    INSERT INTO \`${this.tableName}\` (${quoted(tableColumns).join(', ')})
-      SELECT ${quoted(csvColumns).join(', ')} FROM ${tmpTableName}
-      ON DUPLICATE KEY UPDATE ${updates.join(', ')};`
-    Log.debug(sql)
-    await conn.query(sql)
+    await this.copyValues(columns, tmpTableName)
     // 3. Delete the temporary table
-    sql = `DROP TABLE ${tmpTableName}`
-    Log.debug(sql)
-    await conn.query(sql)
+    const conn = await this.getConnection()
+    await conn.query(`DROP TABLE \`${tmpTableName}\``)
     Log.info(`Finished loading ${path} into ${this.tableName}`)
     return this
   }
 
-  addColumn (name, sqlType = 'BOOLEAN', size) {
+  async copyValues (columns, tableName) {
+    /* Copy the given columns from the given table into this table.
+     *
+     * INSERT INTO dpstest (geo, time, aid_percent)
+     *   SELECT * FROM aid_given_percent_of_gni
+     *   ON DUPLICATE KEY UPDATE dpstest.aid_percent = aid_given_percent_of_gni.aid_given_percent_of_gni;
+     */
+    let sql
+    const values = this._columns(columns.filter(c => this._schema[c]))
+    const keysAndValues = [...this._columns(Array.from(this.keys)), ...values]
+    if (values.length > 0) {
+      const updates = values.map(v => `\`${this.tableName}\`.\`${v}\`=\`${tableName}\`.\`${v}\``)
+      sql = `INSERT INTO \`${this.tableName}\` (${quoted(keysAndValues).join(', ')})
+      SELECT ${quoted(keysAndValues).join(', ')} FROM ${tableName}
+      ON DUPLICATE KEY UPDATE ${updates.join(', ')};`
+    } else {
+      sql = `INSERT IGNORE INTO \`${this.tableName}\` (${quoted(keysAndValues).join(', ')})
+      SELECT ${quoted(keysAndValues).join(', ')} FROM ${tableName};`
+    }
+    Log.debug(sql)
+    const conn = await this.getConnection()
+    await conn.query(sql)
+  }
+
+  addColumn (nameOrObject, sqlType = 'BOOLEAN', size) {
+    const name = nameOrObject.name || nameOrObject
     if (this._schema[name]) {
       throw new Error(`Table ${this.name} already has a '${name}' column!`)
     }
-    this._schema[name] = { sqlType }
+    const def = { sqlType }
     if (size) {
-      this._schema[name].size = size
+      def.size = size
       // TODO: adjust type based on size
     }
+    if (nameOrObject.sqlType) {
+      Object.assign(def, nameOrObject)
+      if (def.name) delete def.name
+    }
+    this._schema[name] = def
   }
 
   async updateFromJoin (foreignTable, sharedColumn, columns) {
@@ -761,8 +822,212 @@ END;`
         return this
       })
   }
+
+  get schema () {
+    return Object.entries(this._schema || {}).map(propValue => {
+      propValue[1].name = propValue[0]
+      return propValue[1]
+    })
+  }
+
+  static specifiedBy (spec) {
+    return spec.tables ? new WideTable(spec) : new this(spec)
+  }
 }
+Table.MaxRowSize = 8000 // NOTE: it is difficult to accurately estimate the row size
+
+class WideTable extends Collection {
+  constructor (specification) {
+    const preparedSpec = Object.assign({}, specification)
+    preparedSpec.keys = new Set(specification.keys || [])
+    super(preparedSpec.name)
+    this.keys = new Set(preparedSpec.keys) // keys first, as they may be needed when other properties are set
+    Object.assign(this, preparedSpec)
+  }
+
+  get tables () {
+    return this._tables
+  }
+
+  set tables (listOfTables = []) {
+    this._tables = listOfTables.map(table => table instanceof Table ? table : Table.specifiedBy(table))
+    this._schema = {}
+    const keys = Array.from(this.keys)
+    this._tables.forEach(table => {
+      if (!table.values) {
+        table.values = table.schema.map(colDef => colDef.name).filter(colName => keys.includes(colName) !== true)
+      }
+      Object.assign(this._schema, table._schema)
+    })
+  }
+
+  _columns (arrayOfSchemaNames, language) {
+    return this.tables.reduce((cols, table) => {
+      return table._columns(cols, language)
+    }, arrayOfSchemaNames)
+  }
+
+  _qualifiedCol (colName, language) {
+    let i = 0
+    if (this.keys.has(colName) === false) {
+      for (i = 0; i < this._tables.length; i++) {
+        if (this._tables[i].values.includes(colName)) break
+      }
+    }
+    const table = this._tables[i]
+    return quoted(table._column(colName, language), table.tableName)
+  }
+
+  _qualified (colNameorArray, language) {
+    return typeof colNameorArray === 'string'
+      ? this._qualifiedCol(colNameorArray)
+      : colNameorArray.map(col => this._qualifiedCol(col, language))
+  }
+
+  _tableFor (column) {
+    for (let table of this.tables) {
+      if (table.values.includes(column)) {
+        return table
+      }
+    }
+    return undefined
+  }
+
+  sqlFor (query = { language: undefined, projection: [], joins: [], filters: [], sort: [] }) {
+    const language = query.language
+    const columns = this._qualified(query.projection, language).join(', ')
+    const innerJoin = query.joins && query.joins.length > 0
+      ? query.joins.reduce((sql, join) => {
+        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${this._qualified(join.on)}=${join.inner._qualified(join.on)}`
+        return sql
+      }, ` `)
+      : ''
+    const foreignTables = (query.joins || []).reduce((tables, j) => {
+      tables[j.inner.name] = j.inner
+      return tables
+    }, {})
+    const where = query.filters && query.filters.length > 0
+      ? `\nWHERE ${query.filters.map(filter => this._sqlForFilter(filter, foreignTables, language)).join(' AND')}`
+      : ''
+    const order = query.sort && query.sort.length > 0
+      ? `\nORDER BY ${query.sort.map(f => {
+        const spec = Object.entries(f)[0] // there should only be one entry
+        return `${this._qualified(spec[0], language)} ${spec[1]}`
+      }).join('AND ')}`
+      : ''
+    const jointTable = this.tables.slice(1).reduce((jSQL, table) => {
+      const onSQL = Array.from(this.keys).map(keyCol => {
+        return `${this.tables[0]._qualified(keyCol)}=${table._qualified(keyCol)}`
+      }).join(' AND ')
+      return `${jSQL}\n  JOIN \`${table.tableName}\` ON ${onSQL}`
+    }, `\`${this.tables[0].tableName}\``)
+    return `SELECT ${columns} FROM ${jointTable}${innerJoin}${where}${order};`
+  }
+
+  async createIn (database, withIndexes = true) {
+    if (database) {
+      this._database = database
+    }
+    this.tables = await Promise.all(this.tables.map(table => table.createIn(database, withIndexes)))
+    return this
+  }
+
+  async loadCSVFile (path, columns = [], keyMap = {}, translations = {}, viaTmpTable = false, delimiter = ',') {
+    /*
+     * Each table that is part of this wide table should be updated with the key columns in the CSV file
+     * and tables that actually manage any of the given columns should be updated with those columns
+     * in the CSV file.
+     */
+    const tmpTableName = await this.tableForCSVFile(path, keyMap, delimiter)
+    await Promise.all(this.tables.map(async table => {
+      await table.copyValues(columns, tmpTableName)
+      Log.info(`Finished loading ${path} into ${table.tableName}`)
+    }))
+    const conn = await this.getConnection()
+    await conn.query(`DROP TABLE \`${tmpTableName}\``)
+  }
+
+  cleanUp () {
+    super.cleanUp()
+    this.tables.forEach(table => table.cleanUp())
+  }
+
+  async createIndexes (columnsOrMinimumCardinality = 150, database = undefined) {
+    await Promise.all(this.tables.map(table => table.createIndexes(columnsOrMinimumCardinality, database)))
+  }
+
+  async dropPrimaryIndex (database = undefined) {
+    await Promise.all(this.tables.map(table => table.dropPrimaryIndex(database)))
+  }
+
+  async setPrimaryIndexTo (columns, database = undefined) {
+    await Promise.all(this.tables.map(table => table.setPrimaryIndexTo(columns, database)))
+  }
+
+  toJSON () {
+    /*
+     * Return a plain object that represents this (wide) table.
+     */
+    const doc = super.toJSON()
+    doc.keys = Array.from(this.keys) // it's convenient to keep the keys for the _qualified method
+    doc.tables = this.tables.map(table => table.toJSON())
+    return doc
+  }
+
+  static split (aTable) {
+    const spec = {
+      name: aTable.name,
+      keys: aTable.keys,
+      tables: []
+    }
+
+    const keyDefs = Array.from(aTable.keys).map(k => {
+      const def = { name: k }
+      Object.assign(def, aTable._schema[k])
+      return def
+    })
+
+    const allMappedColumns = aTable.mappedColumns
+
+    function newTable () {
+      const mappedColumns = {}
+      const table = new Table(`${spec.name}_${WideTable.Suffixes[spec.tables.length]}`, mappedColumns, aTable.keys)
+      table._nrColumns = 0
+      table._rowSize = 0
+      keyDefs.forEach(keyDef => {
+        table.addColumn(keyDef)
+        if (allMappedColumns[keyDef.name]) {
+          mappedColumns[keyDef.name] = allMappedColumns[keyDef.name]
+        }
+        table._nrColumns++
+        table._rowSize += table.estimatedColumnSize(keyDef.name)
+      })
+      return table
+    }
+
+    let table = newTable()
+    spec.tables.push(table)
+    aTable.schema.forEach(colDef => {
+      if (aTable.keys.has(colDef.name) === false) {
+        // TODO: add virtual columns that are dependent on this column with this column
+        if (table._nrColumns >= MaxColumns - 1 || table._rowSize + aTable.estimatedColumnSize(colDef.name) >= Table.MaxRowSize) {
+          table = newTable()
+          spec.tables.push(table)
+        }
+        table.addColumn(colDef)
+        if (allMappedColumns[colDef.name]) {
+          table._mappedColumns[colDef.name] = allMappedColumns[colDef.name]
+        }
+        table._nrColumns++
+        table._rowSize += table.estimatedColumnSize(colDef.name)
+      }
+    })
+    return new this(spec)
+  }
+}
+WideTable.Suffixes = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
 
 Object.assign(exports, {
-  Table
+  Table,
+  setWideTableThreshold: Table.setWideTableThreshold // used in testing
 })

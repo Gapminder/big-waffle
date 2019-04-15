@@ -29,7 +29,8 @@ const envVars = [
   { name: 'ReservedCPUs', envVar: 'RESERVED_CPUS', _default: 4 },
   { name: 'AssetStore', envVar: 'ASSET_STORE', _default: 'GCS' }, // one of ['GCS'] (and later perhaps S3, etc.)
   { name: 'AssetStoreBucket', envVar: 'ASSET_STORE_BUCKET' },
-  { name: 'SlackChannelUrl', envVar: 'SLACK_CHANNEL_URL' }
+  { name: 'SlackChannelUrl', envVar: 'SLACK_CHANNEL_URL' },
+  { name: 'MaxColumns', envVar: 'DB_MAX_COLUMNS', _default: 1000 }
 ]
 
 function envCopy () {

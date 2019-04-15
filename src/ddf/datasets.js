@@ -57,14 +57,26 @@ class DDFSchema {
   }
 
   get tableNames () {
+    /*
+     * Return a list with the names of all physical tables for this dataset
+     */
     const tableNames = []
     for (const kind of ['concepts', 'entities', 'datapoints']) {
       for (const key in this[kind]) {
         const def = this[kind][key]
         if (def && def.table) {
-          const tableName = def.table.tableName || def.table.name
-          if (tableName) {
-            tableNames.push(tableName)
+          if (def.table.tables) {
+            def.table.tables.forEach(table => {
+              const tableName = table.tableName || table.name
+              if (tableName) {
+                tableNames.push(tableName)
+              }
+            })
+          } else {
+            const tableName = def.table.tableName || def.table.name
+            if (tableName) {
+              tableNames.push(tableName)
+            }
           }
         }
       }
@@ -361,7 +373,7 @@ class DDFSchema {
     } else if (tableOrArgs instanceof Table) {
       return tableOrArgs
     } else {
-      def.table = new Table(tableOrArgs)
+      def.table = Table.specifiedBy(tableOrArgs)
       return def.table
     }
   }
@@ -644,18 +656,22 @@ class Dataset {
   }
 
   async _createTableFor (ddfTable = { kind: 'datapoints', key: [], resources: [], values: [] }, translations = {}, options = { onlyParse: false, viaTmpTable: false }) {
-    const table = new Table(this._getCollection(ddfTable.key.join('$')), ddfTable.fieldMap, ddfTable.key)
+    let table = new Table(this._getCollection(ddfTable.key.join('$')), ddfTable.fieldMap, ddfTable.key)
     const files = ddfTable.resources.reduce((files, resourceName) => {
       const resourceDef = this._resources[resourceName]
       if (!resourceDef) {
         throw new SchemaError(`Resource ${resourceName} is not defined`)
       }
       // key of file could be 'country', but the key for the table is e.g. 'geo'
-      files[resourceDef.path] = this.schema.fileKeyMapping(ddfTable.key, resourceDef.key)
+      files[resourceDef.path] = {
+        keyMap: this.schema.fileKeyMapping(ddfTable.key, resourceDef.key),
+        values: resourceDef.values
+      }
       return files
     }, {})
     for (const file of Object.keys(files)) {
-      await table.updateSchemaFromCSVFile(file, files[file], translations[file])
+      const fileDetails = files[file]
+      await table.updateSchemaFromCSVFile(file, fileDetails.keyMap, translations[file])
     }
     table.updateSchemaWithColumns(ddfTable.values)
     Log.info(`Expected row size is ${table.estimatedRowSize} bytes`)
@@ -666,10 +682,11 @@ class Dataset {
         // these columns are filled once the table has been loaded
       }
       try {
-        await table.createIn(DB)
+        table = await table.createIn(DB)
         await table.setPrimaryIndexTo(ddfTable.key)
         for (const file of Object.keys(files)) {
-          await table.loadCSVFile(file, files[file], translations[file], options.viaTmpTable)
+          const fileDetails = files[file]
+          await table.loadCSVFile(file, fileDetails.values, fileDetails.keyMap, translations[file], options.viaTmpTable)
         }
         /*
          * the next section creates joins to update "is--country" columns on a "geo" table
@@ -736,7 +753,11 @@ class Dataset {
     this.schema = DDFSchema.fromDDFPackage(dataPackage)
 
     this._resources = dataPackage.resources.reduce((entries, resource) => {
-      entries[resource.name] = { path: `${dirPath}/${resource.path}`, key: resource.schema.primaryKey }
+      entries[resource.name] = {
+        path: `${dirPath}/${resource.path}`,
+        key: resource.schema.primaryKey,
+        values: resource.schema.fields.map(f => f.name).filter(v => resource.schema.primaryKey.includes(v) !== true)
+      }
       return entries
     }, {})
 
