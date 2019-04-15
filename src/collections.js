@@ -833,7 +833,6 @@ END;`
   static specifiedBy (spec) {
     return spec.tables ? new WideTable(spec) : new this(spec)
   }
-
 }
 Table.MaxRowSize = 8000 // NOTE: it is difficult to accurately estimate the row size
 

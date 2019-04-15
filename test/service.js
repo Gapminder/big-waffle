@@ -430,7 +430,7 @@ describe('DDF Service', function () {
           response.body.rows[8].should.have.members(['sgp', 2003, null, null, 2019.3])
         })
     })
-  
+
     it('query accross indicators, but joined for only one subtable', function () {
       return client.query({
         select: { key: ['geo', 'time'], value: ['indicator_01', 'indicator_19'] },
