@@ -5,7 +5,7 @@ chai.should()
 chai.use(require('chai-like'))
 chai.use(require('chai-things'))
 
-const { cliOptions, loadTestData } = require('./utils')
+const { cliOptions, loadTestData, setEnvVar, clearEnvVar } = require('./utils')
 
 function list (name) {
   const output = execFileSync('node', ['src/cli.js', 'list'], cliOptions)
@@ -47,11 +47,25 @@ describe('CLI', function () {
       const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2' })
     })
-    it('Report error when trying to load same and version', function () {
+    it('Report error when trying to load existing dataset and version', function () {
       const nrOfDatasets = list('test').length
-      const scriptOutput = loadTestData('test', 0, 'v2')
-      scriptOutput.toString().should.not.match(/error/i)
+      const testfn = () => loadTestData('test', 0, 'v2')
+      testfn.should.throw()
       list('test').should.be.an('array').with.lengthOf(nrOfDatasets)
+    })
+    it(`Report error when trying to load with "latest" as version`, function () {
+      const nrOfDatasets = list('test').length
+      const testfn = () => loadTestData('test', 0, 'latest')
+      testfn.should.throw()
+      list('test').should.be.an('array').with.lengthOf(nrOfDatasets)
+    })
+    it('Load "wide" dataset without errors', function () {
+      setEnvVar('DB_MAX_COLUMNS', 10)
+      const scriptOutput = loadTestData('test', 'wide', 'wide')
+      clearEnvVar('DB_MAX_COLUMNS')
+      scriptOutput.toString().should.not.match(/error/i)
+      const datasets = list('test')
+      datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'wide' })
     })
   })
   describe('make-default', function () {

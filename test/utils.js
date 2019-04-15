@@ -12,10 +12,20 @@ const cliOptions = {
   timeout: cliTimeout
 }
 
+function setEnvVar (name, value) {
+  cliOptions.env[name] = value
+}
+
+function clearEnvVar (name) {
+  if (cliOptions.env[name]) {
+    delete cliOptions.env[name]
+  }
+}
 function loadTestData (name = 'test', version = 0, versionLabel) {
-  const args = ['src/cli.js', 'load', '-d', `test/ddf--testdata/v${version}`, name]
+  const versionString = typeof version === 'number' ? `v${version}` : version
+  const args = ['src/cli.js', 'load', '-d', `test/ddf--testdata/${versionString}`, name]
   if (versionLabel || version) {
-    args.push(versionLabel || `v${version}`)
+    args.push(versionLabel || versionString)
   }
   return execFileSync('node', args, cliOptions)
 }
@@ -33,5 +43,7 @@ function DDFQueryClient (dataset = 'test') {
 module.exports = {
   cliOptions,
   loadTestData,
-  DDFQueryClient
+  DDFQueryClient,
+  setEnvVar,
+  clearEnvVar
 }

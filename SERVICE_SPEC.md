@@ -101,6 +101,8 @@ Clients of the service SHOULD include the version in the request URL for related
 
 In practice a client often first issues a query to obtain information about e.g. the schema and/or entities of the dataset and only then issues a query for actual data. In such scenario the first request could be without a version. The response then includes the version used and the client uses that version to make the second query.
 
+The service MAY support the special version _"latest"_ to make it easy for clients to work with the most recently loaded version of a named dataset, irrespective of any default version. Hence, datasets SHOULD NOT be _given_ a version "latest".
+
 ### Example
 
 Here is an annotated example:
