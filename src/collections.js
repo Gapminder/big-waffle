@@ -7,6 +7,7 @@ const firstline = require('firstline')
 const { sample, sampleSize } = require('lodash')
 
 const Log = require('./log')('collections')
+const { MaxColumns } = require('./env')
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms)) // helper generator for wait promises
 
@@ -429,7 +430,7 @@ class Table extends Collection {
   }
 
   async createIn (database, withIndexes = true) {
-    if (Object.keys(this._schema).length > Table.MaxColumns) {
+    if (Object.keys(this._schema).length > MaxColumns) {
       const wideTable = WideTable.split(this)
       await wideTable.createIn(database, withIndexes)
       return wideTable
@@ -833,11 +834,7 @@ END;`
     return spec.tables ? new WideTable(spec) : new this(spec)
   }
 
-  static setWideTableThreshold (nrColumns = 1000) {
-    Table.MaxColumns = nrColumns
-  }
 }
-Table.MaxColumns = 1000
 Table.MaxRowSize = 8000 // NOTE: it is difficult to accurately estimate the row size
 
 class WideTable extends Collection {
@@ -1014,7 +1011,7 @@ class WideTable extends Collection {
     aTable.schema.forEach(colDef => {
       if (aTable.keys.has(colDef.name) === false) {
         // TODO: add virtual columns that are dependent on this column with this column
-        if (table._nrColumns >= Table.MaxColumns - 1 || table._rowSize + aTable.estimatedColumnSize(colDef.name) >= Table.MaxRowSize) {
+        if (table._nrColumns >= MaxColumns - 1 || table._rowSize + aTable.estimatedColumnSize(colDef.name) >= Table.MaxRowSize) {
           table = newTable()
           spec.tables.push(table)
         }

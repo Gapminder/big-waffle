@@ -9,7 +9,7 @@ chai.use(require('chai-things'))
 
 const { DB } = require('../src/maria')
 const { DDFService } = require('../src/service')
-const { cliOptions, loadTestData, DDFQueryClient } = require('./utils')
+const { cliOptions, loadTestData, DDFQueryClient, setEnvVar, clearEnvVar } = require('./utils')
 
 describe('DDF Service', function () {
   this.timeout(cliOptions.timeout * 3) // loading test data takes a few seconds
@@ -392,6 +392,69 @@ describe('DDF Service', function () {
           response.body.should.have.keys(['header', 'rows', 'version'])
           response.body.header.should.have.members(['concept', 'description'])
           response.body.rows.should.contain.one.eql(['age', 'Asukasryhmän ikä'])
+        })
+    })
+  })
+
+  describe('Wide tables', function () {
+    before(function loadWideTest () {
+      setEnvVar('DB_MAX_COLUMNS', 10)
+      loadTestData('test', 'wide', 'wide') // wide test data has version 'wide'
+      clearEnvVar('DB_MAX_COLUMNS')
+    })
+
+    it('query accross indicators', function () {
+      return client.query({
+        select: { key: ['geo', 'time'], value: ['indicator_01', 'indicator_11', 'indicator_19'] },
+        from: 'datapoints',
+        where: {
+          $and: [{ geo: '$geo' }]
+        },
+        join: {
+          $geo: {
+            key: 'geo',
+            where: { geo: { $in: ['fin', 'sgp'] } }
+          }
+        },
+        order_by: ['time']
+      }, 'wide')
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['geo', 'time', 'indicator_01', 'indicator_11', 'indicator_19'])
+          response.body.rows.should.have.lengthOf(9)
+          response.body.rows.should.contain.one.eql(['fin', 2001, 2001.1, 2011.1, 2019.1])
+          response.body.rows[1].should.have.members(['sgp', 1951, null, 1961.1, 1969.1])
+          response.body.rows[8].should.have.members(['sgp', 2003, null, null, 2019.3])
+        })
+    })
+  
+    it('query accross indicators, but joined for only one subtable', function () {
+      return client.query({
+        select: { key: ['geo', 'time'], value: ['indicator_01', 'indicator_19'] },
+        from: 'datapoints',
+        where: {
+          $and: [{ geo: '$geo' }]
+        },
+        join: {
+          $geo: {
+            key: 'geo',
+            where: { geo: { $in: ['sgp'] } } // there's no data indicator_01 data for sgp
+          }
+        },
+        order_by: ['time']
+      }, 'wide')
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['geo', 'time', 'indicator_01', 'indicator_19'])
+          response.body.rows.should.have.lengthOf(6)
+          response.body.rows.should.contain.one.eql(['sgp', 2002, null, 2019.2])
+          response.body.rows.should.all.satisfy(r => r[0] === 'sgp' && r[2] === null)
         })
     })
   })
