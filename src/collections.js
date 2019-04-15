@@ -131,6 +131,36 @@ class Collection {
     this.keys = new Set()
   }
 
+  _sqlForFilter (filter, foreignTables = {}, language = undefined) {
+    /*
+     * Return the SQL for one (complex) filter (expression).
+     *
+     * Filters can be nested in that case this function will recurse.
+     */
+    const clauses = []
+    for (const column in filter) {
+      if (['$and', '$or'].includes(column)) { // TODO: add $not and $nor ?
+        const subClauses = []
+        for (const subFilter of filter[column]) {
+          subClauses.push(this._sqlForFilter(subFilter, foreignTables, language))
+        }
+        clauses.push(`(${subClauses.join(` ${column.slice(1).toUpperCase()}`)})`)
+      } else {
+        let qualifiedColumnName = column.split('.')
+        if (qualifiedColumnName.length > 1) {
+          const foreignTable = foreignTables[qualifiedColumnName[0]]
+          qualifiedColumnName = foreignTable._qualified(qualifiedColumnName[1], language)
+        } else {
+          qualifiedColumnName = this._qualified(column, language)
+        }
+        for (const operator in filter[column]) {
+          clauses.push(Conditions[operator](qualifiedColumnName, filter[column][operator]))
+        }
+      }
+      return clauses.join(` AND`)
+    }
+  }
+
   cleanUp () {
     if (this._connection) {
       this._connection.end()
@@ -236,6 +266,12 @@ class Table extends Collection {
     return arrayOfSchemaNames.map(n => this._column(n, language))
   }
 
+  _qualified (colNameorArray, language) {
+    return typeof colNameorArray === 'string'
+      ? quoted(this._column(colNameorArray, language), this.tableName)
+      : colNameorArray.map(n => quoted(this._column(n, language), this.tableName))
+  }
+
   get tableName () {
     return this._tableName || this.name
   }
@@ -283,7 +319,11 @@ class Table extends Collection {
   estimatedColumnSize (colName) {
     let fieldDef = this._schema[colName]
     if (fieldDef.sqlType === `VARCHAR`) {
-      return (fieldDef.size) * 2 + 2
+      let charSize = 1.1
+      if (/^_.+--[a-z]{2}-[a-z]{2}$/i.test(colName)) { // most likely a translated column
+        charSize = 2.2
+      }
+      return Math.round((fieldDef.size) * charSize + 2)
     } else if (['TINYINT', 'INTEGER', 'BIGINT', 'FLOAT'].includes(fieldDef.sqlType)) {
       return 4
     } else if (fieldDef.sqlType === `DOUBLE`) {
@@ -291,7 +331,7 @@ class Table extends Collection {
     } else if (fieldDef.sqlType === `BOOLEAN`) {
       return 4
     } else if ([`JSON`, `TEXT`, `BLOB`].includes(fieldDef.sqlType)) {
-      return 0
+      return 10
     } else if (fieldDef.virtual) {
       return 0
     } else {
@@ -389,7 +429,7 @@ class Table extends Collection {
   }
 
   async createIn (database, withIndexes = true) {
-    if (Object.keys(this._schema).length > Table.MaxColumns || this.estimatedRowSize > Table.MaxRowSize) {
+    if (Object.keys(this._schema).length > Table.MaxColumns) {
       const wideTable = WideTable.split(this)
       await wideTable.createIn(database, withIndexes)
       return wideTable
@@ -423,46 +463,27 @@ class Table extends Collection {
     sql = `${sql.slice(0, -1)});`
     Log.debug(sql)
     const conn = await this.getConnection(database)
-    await conn.query(sql)
-    return this
-  }
-
-  _sqlForFilter (filter, foreignTables = {}, language = undefined) {
-    /*
-     * Add the SQL for one filter to the given sql.
-     *
-     * Filters can be nested in that case this function will recurse
-     */
-    const clauses = []
-    for (const column in filter) {
-      if (['$and', '$or'].includes(column)) { // TODO: add $not and $nor ?
-        const subClauses = []
-        for (const subFilter of filter[column]) {
-          subClauses.push(this._sqlForFilter(subFilter, foreignTables, language))
-        }
-        clauses.push(`(${subClauses.join(` ${column.slice(1).toUpperCase()}`)})`)
+    try {
+      await conn.query(sql)
+    } catch (err) {
+      if (['ER_TOO_MANY_FIELDS', 'ER_TOO_BIG_ROWSIZE'].includes(err.code)) {
+        // split the table
+        const wideTable = WideTable.split(this)
+        await wideTable.createIn(database, withIndexes)
+        return wideTable
       } else {
-        let qualifiedColumnName = column.split('.')
-        if (qualifiedColumnName.length > 1) {
-          const foreignTable = foreignTables[qualifiedColumnName[0]]
-          qualifiedColumnName = quoted(foreignTable._column(qualifiedColumnName[1], language), foreignTable.tableName)
-        } else {
-          qualifiedColumnName = quoted(this._column(column, language), this.tableName)
-        }
-        for (const operator in filter[column]) {
-          clauses.push(Conditions[operator](qualifiedColumnName, filter[column][operator]))
-        }
+        throw err
       }
-      return clauses.join(` AND`)
     }
+    return this
   }
 
   sqlFor (query = { language: undefined, projection: [], joins: [], filters: [], sort: [] }) {
     const language = query.language
-    const columns = quoted(this._columns(query.projection, language), this.tableName).join(', ')
+    const columns = this._qualified(query.projection, language).join(', ')
     const innerJoin = query.joins && query.joins.length > 0
       ? query.joins.reduce((sql, join) => {
-        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${quoted(this._column(join.on), this.tableName)}=${quoted(join.inner._column(join.on), join.inner.tableName)}`
+        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${this._qualified(join.on)}=${join.inner._qualified(join.on)}`
         return sql
       }, ` `)
       : ''
@@ -476,7 +497,7 @@ class Table extends Collection {
     const order = query.sort && query.sort.length > 0
       ? `\nORDER BY ${query.sort.map(f => {
         const spec = Object.entries(f)[0] // there should only be one entry
-        return `\`${this._column(spec[0], language)}\` ${spec[1]}`
+        return `${this._qualified(spec[0], language)} ${spec[1]}`
       }).join('AND ')}`
       : ''
     return `SELECT ${columns} FROM \`${this.tableName}\`${innerJoin}${where}${order};`
@@ -817,13 +838,15 @@ END;`
   }
 }
 Table.MaxColumns = 1000
-Table.MaxRowSize = 8000
+Table.MaxRowSize = 8000 // NOTE: it is difficult to accurately estimate the row size
 
 class WideTable extends Collection {
   constructor (specification) {
-    super(specification.name)
-    this.keys = specification.keys
-    Object.assign(this, specification)
+    const preparedSpec = Object.assign({}, specification)
+    preparedSpec.keys = new Set(specification.keys || [])
+    super(preparedSpec.name)
+    this.keys = new Set(preparedSpec.keys) // keys first, as they may be needed when other properties are set
+    Object.assign(this, preparedSpec)
   }
 
   get tables () {
@@ -831,7 +854,7 @@ class WideTable extends Collection {
   }
 
   set tables (listOfTables = []) {
-    this._tables = listOfTables
+    this._tables = listOfTables.map(table => table instanceof Table ? table : Table.specifiedBy(table))
     this._schema = {}
     const keys = Array.from(this.keys)
     this._tables.forEach(table => {
@@ -848,6 +871,23 @@ class WideTable extends Collection {
     }, arrayOfSchemaNames)
   }
 
+  _qualifiedCol (colName, language) {
+    let i = 0
+    if (this.keys.has(colName) === false) {
+      for (i = 0; i < this._tables.length; i++) {
+        if (this._tables[i].values.includes(colName)) break
+      }
+    }
+    const table = this._tables[i]
+    return quoted(table._column(colName, language), table.tableName)
+  }
+
+  _qualified (colNameorArray, language) {
+    return typeof colNameorArray === 'string'
+      ? this._qualifiedCol(colNameorArray)
+      : colNameorArray.map(col => this._qualifiedCol(col, language))
+  }
+
   _tableFor (column) {
     for (let table of this.tables) {
       if (table.values.includes(column)) {
@@ -855,6 +895,37 @@ class WideTable extends Collection {
       }
     }
     return undefined
+  }
+
+  sqlFor (query = { language: undefined, projection: [], joins: [], filters: [], sort: [] }) {
+    const language = query.language
+    const columns = this._qualified(query.projection, language).join(', ')
+    const innerJoin = query.joins && query.joins.length > 0
+      ? query.joins.reduce((sql, join) => {
+        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${this._qualified(join.on)}=${join.inner._qualified(join.on)}`
+        return sql
+      }, ` `)
+      : ''
+    const foreignTables = (query.joins || []).reduce((tables, j) => {
+      tables[j.inner.name] = j.inner
+      return tables
+    }, {})
+    const where = query.filters && query.filters.length > 0
+      ? `\nWHERE ${query.filters.map(filter => this._sqlForFilter(filter, foreignTables, language)).join(' AND')}`
+      : ''
+    const order = query.sort && query.sort.length > 0
+      ? `\nORDER BY ${query.sort.map(f => {
+        const spec = Object.entries(f)[0] // there should only be one entry
+        return `${this._qualified(spec[0], language)} ${spec[1]}`
+      }).join('AND ')}`
+      : ''
+    const jointTable = this.tables.slice(1).reduce((jSQL, table) => {
+      const onSQL = Array.from(this.keys).map(keyCol => {
+        return `${this.tables[0]._qualified(keyCol)}=${table._qualified(keyCol)}`
+      }).join(' AND ')
+      return `${jSQL}\n  JOIN \`${table.tableName}\` ON ${onSQL}`
+    }, `\`${this.tables[0].tableName}\``)
+    return `SELECT ${columns} FROM ${jointTable}${innerJoin}${where}${order};`
   }
 
   async createIn (database, withIndexes = true) {
@@ -872,7 +943,10 @@ class WideTable extends Collection {
      * in the CSV file.
      */
     const tmpTableName = await this.tableForCSVFile(path, keyMap, delimiter)
-    await Promise.all(this.tables.map(table => table.copyValues(columns, tmpTableName)))
+    await Promise.all(this.tables.map(async table => {
+      await table.copyValues(columns, tmpTableName)
+      Log.info(`Finished loading ${path} into ${table.tableName}`)
+    }))
     const conn = await this.getConnection()
     await conn.query(`DROP TABLE \`${tmpTableName}\``)
   }
@@ -899,6 +973,7 @@ class WideTable extends Collection {
      * Return a plain object that represents this (wide) table.
      */
     const doc = super.toJSON()
+    doc.keys = Array.from(this.keys) // it's convenient to keep the keys for the _qualified method
     doc.tables = this.tables.map(table => table.toJSON())
     return doc
   }
@@ -910,39 +985,45 @@ class WideTable extends Collection {
       tables: []
     }
 
-    const allMappedColumns = aTable.mappedColumns
-    let table, mappedColumns, nrColumns, rowSize
     const keyDefs = Array.from(aTable.keys).map(k => {
       const def = { name: k }
       Object.assign(def, aTable._schema[k])
       return def
     })
+
+    const allMappedColumns = aTable.mappedColumns
+
+    function newTable () {
+      const mappedColumns = {}
+      const table = new Table(`${spec.name}_${WideTable.Suffixes[spec.tables.length]}`, mappedColumns, aTable.keys)
+      table._nrColumns = 0
+      table._rowSize = 0
+      keyDefs.forEach(keyDef => {
+        table.addColumn(keyDef)
+        if (allMappedColumns[keyDef.name]) {
+          mappedColumns[keyDef.name] = allMappedColumns[keyDef.name]
+        }
+        table._nrColumns++
+        table._rowSize += table.estimatedColumnSize(keyDef.name)
+      })
+      return table
+    }
+
+    let table = newTable()
+    spec.tables.push(table)
     aTable.schema.forEach(colDef => {
       if (aTable.keys.has(colDef.name) === false) {
-        if (!table) {
-          mappedColumns = {}
-          table = new Table(`${spec.name}_${WideTable.Suffixes[spec.tables.length]}`, mappedColumns, aTable.keys)
+        // TODO: add virtual columns that are dependent on this column with this column
+        if (table._nrColumns >= Table.MaxColumns - 1 || table._rowSize + aTable.estimatedColumnSize(colDef.name) >= Table.MaxRowSize) {
+          table = newTable()
           spec.tables.push(table)
-          nrColumns = 0
-          rowSize = 0
-          keyDefs.forEach(keyDef => {
-            table.addColumn(keyDef)
-            if (allMappedColumns[keyDef.name]) {
-              mappedColumns[keyDef.name] = allMappedColumns[keyDef.name]
-            }
-            nrColumns++
-            rowSize += table.estimatedColumnSize(keyDef.name)
-          })
         }
         table.addColumn(colDef)
         if (allMappedColumns[colDef.name]) {
-          mappedColumns[colDef.name] = allMappedColumns[colDef.name]
+          table._mappedColumns[colDef.name] = allMappedColumns[colDef.name]
         }
-        nrColumns++
-        rowSize += table.estimatedColumnSize(colDef.name)
-        if (nrColumns >= Table.MaxColumns || rowSize >= Table.MaxRowSize) {
-          table = null // next column will go into a new table
-        }
+        table._nrColumns++
+        table._rowSize += table.estimatedColumnSize(colDef.name)
       }
     })
     return new this(spec)
