@@ -5,7 +5,7 @@ chai.should()
 chai.use(require('chai-like'))
 chai.use(require('chai-things'))
 
-const { cliOptions, loadTestData, setWideTableThreshold } = require('./utils')
+const { cliOptions, loadTestData, setEnvVar, clearEnvVar } = require('./utils')
 
 function list (name) {
   const output = execFileSync('node', ['src/cli.js', 'list'], cliOptions)
@@ -54,9 +54,9 @@ describe('CLI', function () {
       list('test').should.be.an('array').with.lengthOf(nrOfDatasets)
     })
     it('Load "wide" dataset without errors', function () {
-      setWideTableThreshold(10)
+      setEnvVar('DB_MAX_COLUMNS', 10)
       const scriptOutput = loadTestData('test', 'wide', 'wide')
-      setWideTableThreshold()
+      clearEnvVar('DB_MAX_COLUMNS')
       scriptOutput.toString().should.not.match(/error/i)
       const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'wide' })
