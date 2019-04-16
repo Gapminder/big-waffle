@@ -469,5 +469,26 @@ describe('DDF Service', function () {
           response.body.rows.should.all.satisfy(r => r[0] === 'sgp' && r[2] === null)
         })
     })
+
+    it('query for only one indicator', function () {
+      return client.query({
+        select: { key: ['geo', 'time'], value: ['indicator_19'] },
+        from: 'datapoints',
+        where: {
+          time: { $gt: 1999 },
+          geo: { $in: ['sgp'] }
+        },
+        order_by: ['time']
+      }, 'wide')
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['geo', 'time', 'indicator_19'])
+          response.body.rows.should.have.lengthOf(3)
+          response.body.rows.should.contain.one.eql(['sgp', 2002, 2019.2])
+        })
+    })
   })
 })

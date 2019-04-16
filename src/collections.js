@@ -894,6 +894,11 @@ class WideTable extends Collection {
   }
 
   sqlFor (query = { language: undefined, projection: [], joins: [], filters: [], sort: [] }) {
+    // if only one value is needed there's no need to join the tables of this wide table
+    if (query.projection.length === 1) {
+      return this._tableFor(query.projection[0]).sqlFor(query)
+    }
+
     const language = query.language
     const columns = this._qualified(query.projection, language).join(', ')
     const innerJoin = query.joins && query.joins.length > 0
