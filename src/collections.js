@@ -962,8 +962,14 @@ class WideTable extends Collection {
     await Promise.all(this.tables.map(table => table.createIndexes(columnsOrMinimumCardinality, database)))
   }
 
-  async dropPrimaryIndex (database = undefined) {
-    await Promise.all(this.tables.map(table => table.dropPrimaryIndex(database)))
+  async dropPrimaryIndex (database = undefined, force = false) {
+    /*
+     * Unlike for a normal table a wdie table should retain the primary indexes
+     * on its tables to allow for fast joins of those tables.
+     */
+    if (force) {
+      await Promise.all(this.tables.map(table => table.dropPrimaryIndex(database)))
+    }
   }
 
   async setPrimaryIndexTo (columns, database = undefined) {
