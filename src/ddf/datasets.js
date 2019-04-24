@@ -500,39 +500,57 @@ class Dataset {
     return this._isNew === true
   }
 
-  async save () {
-    if (!this.version) {
-      this.incrementVersion()
-    }
-    const doc = this.toJSON()
-    let filter = ''
-    let sql
-    if (this.isNew) {
-      filter = this._keyFields.reduce((flt, field) => {
-        flt += ` ${field} = '${doc[field]}',`
-        delete doc[field]
-        return flt
-      }, '')
-      sql = `INSERT INTO datasets SET${filter} definition = '${JSON.stringify(doc)}';`
-    } else {
-      filter = this._keyFields.reduce((flt, field) => {
-        flt += ` ${field} = '${doc[field]}' AND `
-        delete doc[field]
-        return flt
-      }, '')
-      if (filter.endsWith(' AND ')) {
-        filter = filter.slice(0, -5)
-      }
-      sql = `UPDATE datasets SET definition = '${JSON.stringify(doc)}' WHERE${filter};`
-    }
+  async save (publish = false) {
+    let conn, sql
     try {
-      await DB.query(sql)
+      conn = await DB.getConnection()
+
+      if (publish !== true) {
+        await Dataset.ensureDefaultVersion(this.name, conn)
+      }
+
+      if (!this.version) {
+        this.incrementVersion()
+      }
+      const doc = this.toJSON()
+      let filter = ''
+      if (this.isNew) {
+        filter = this._keyFields.reduce((flt, field) => {
+          flt += ` ${field} = '${doc[field]}',`
+          delete doc[field]
+          return flt
+        }, '')
+        sql = `INSERT INTO datasets SET${filter} definition = '${JSON.stringify(doc)}';`
+      } else {
+        filter = this._keyFields.reduce((flt, field) => {
+          flt += ` ${field} = '${doc[field]}' AND `
+          delete doc[field]
+          return flt
+        }, '')
+        if (filter.endsWith(' AND ')) {
+          filter = filter.slice(0, -5)
+        }
+        sql = `UPDATE datasets SET definition = '${JSON.stringify(doc)}' WHERE${filter};`
+      }
+      try {
+        await conn.query(sql)
+      } catch (err) {
+        Log.error({ err, sql })
+        throw err
+      }
       Log.info(`${this.isNew ? 'Inserted' : 'Updated'} dataset ${this.name}.${this.version}`)
       delete this._isNew
+
+      if (publish === true) {
+        await this.publish(conn)
+      }
+
+      return this
     } catch (err) {
-      Log.error({ err, sql })
+      Log.error(err)
+    } finally {
+      if (conn.end) conn.end()
     }
-    return this
   }
 
   _getCollection (collectionName) {
@@ -802,6 +820,44 @@ class Dataset {
     await Promise.all(assets.map(asset => CloudStore.upload(`${dirPath}/assets/${asset}`, `${this.name}/${this.version}/${asset}`)))
   }
 
+  async publish (connection = undefined) {
+    /*
+     * Ensure that this version will be the version that is used by default.
+     *
+     * If there is another default version for datasets with the same name
+     * make this version the new default.
+     * If there is no default version and this version is the most recent, 'latest',
+     * nothing needs to be done.
+     */
+    Log.info(`Publishing ${this.name}.${this.version}`)
+    let conn
+    try {
+      conn = connection || await DB.getConnection()
+      // check if there is already a default, different from this version
+      const versions = await conn.query(`
+      SELECT name, version, is__default AS isDefault FROM datasets 
+      WHERE name = '${this.name}'
+      ORDER BY imported DESC;`)
+      for (let version of versions) {
+        if (version.isDefault) {
+          if (version.version !== this.version) {
+            await Dataset.makeDefaultVersion(this.name, this.version, conn)
+          }
+          return this
+        }
+      }
+      // there is no default version, yet.
+      if (versions[0].version !== this.version) {
+        // this version is not the latest so we should make it the default
+        await Dataset.makeDefaultVersion(this.name, this.version, conn)
+      }
+    } catch (err) {
+      Log.error(err)
+    } finally {
+      if (connection === undefined && conn.end) conn.end()
+    }
+  }
+
   async urlForAsset (asset, secure = false) {
     return CloudStore.urlFor(`${this.name}/${this.version}/${asset}`, secure)
   }
@@ -813,33 +869,39 @@ class Dataset {
     return this.schema.tableNames
   }
 
-  static async remove (name, version = undefined) {
+  static async remove (name, version = undefined, connection = undefined) {
     /*
     * Delete ALL tables for the dataset with the given name.
     *
     * If the version is given as 'all', the tables for all versions will be deleted!
     * If no version is given the default version will be deleted. And if no default
     * version exists, nothing will be deleted.
+    * The version parameter can also be a list of versions.
     */
     let conn
     const filters = [`name = '${name}'`]
     try {
-      conn = await DB.getConnection()
+      conn = connection || await DB.getConnection()
       let msg = `Deleting tables belonging to ${name}`
-      if (version && version.toUpperCase() === '_ALL_') {
-        msg += ` (ALL versions)`
-        version = null
-      } else if (version === undefined) {
-        // get the default version
-        const defaultVersions = await conn.query(`SELECT version FROM datasets WHERE name = '${name}' AND is__default IS TRUE`)
-        if (defaultVersions.length !== 1) {
-          throw new Error(`Could not determine default version for ${name}`)
+      if (Array.isArray(version)) {
+        filters.push(`version IN (${version.map(v => `'${v}'`).join(', ')})`)
+        msg += `.${version[0]}${version.length > 1 ? version.slice(1).forEach(v => `, ${name}.${v}`) : ''}`
+      } else {
+        if (version && version.toUpperCase() === '_ALL_') {
+          msg += ` (ALL versions)`
+          version = null
+        } else if (version === undefined) {
+          // get the default version
+          const defaultVersions = await conn.query(`SELECT version FROM datasets WHERE name = '${name}' AND is__default IS TRUE`)
+          if (defaultVersions.length !== 1) {
+            throw new Error(`Could not determine default version for ${name}`)
+          }
+          version = defaultVersions[0].version
         }
-        version = defaultVersions[0].version
-      }
-      if (version) {
-        filters.push(`version = '${version}'`)
-        msg += `.${version}`
+        if (version) {
+          filters.push(`version = '${version}'`)
+          msg += `.${version}`
+        }
       }
       Log.info(msg)
       const datasets = await conn.query({
@@ -866,7 +928,7 @@ class Dataset {
     } catch (err) {
       Log.error(err)
     } finally {
-      if (conn.end) conn.end()
+      if (connection === undefined && conn.end) conn.end()
     }
   }
 
@@ -880,8 +942,8 @@ class Dataset {
       await conn.query(`UPDATE datasets SET is__default = TRUE WHERE name = '${name}' AND version = '${version}';`)
       const defaultVersions = await conn.query(`
         SELECT name, version FROM datasets 
-        WHERE name = '${name}' AND version = '${version}';`)
-      if (defaultVersions.length !== 1) {
+        WHERE name = '${name}' AND is__default = TRUE;`)
+      if (defaultVersions.length !== 1 || defaultVersions[0].version !== version) {
         throw new Error(`Default version for ${name} could not be set to ${version}! Check database!`)
       }
       Log.info(`Default version for ${defaultVersions[0].name} is now ${defaultVersions[0].version}`)
@@ -893,71 +955,69 @@ class Dataset {
     }
   }
 
-  static async revert (name, version = undefined) {
+  static async ensureDefaultVersion (name, connection = undefined) {
+    let conn = connection
+    try {
+      conn = conn || await DB.getConnection()
+      // check for existing default
+      const versions = await conn.query(`
+        SELECT name, version, is__default AS isDefault FROM datasets 
+        WHERE name = '${name}'
+        ORDER BY imported DESC;`)
+      for (let version of versions) {
+        if (version.isDefault) {
+          // no need to do anything, as there is a default version
+          return
+        }
+      }
+      if (versions.length < 1) {
+        return
+      }
+      await this.makeDefaultVersion(name, versions[0].version, connection)
+    } catch (err) {
+      Log.error(err)
+    } finally {
+      if (connection === undefined && conn.end) conn.end()
+    }
+  }
+
+  static async purge (name) {
     /*
-     * Mark the version that preceeds the most recent version of the Dataset with the given name as default.
+     * Delete old versions of datasets with the given name.
      *
-     * If there is no current default version for the named dataset,
-     * the one but most recent version will be marked as default.
+     * The default (or latest) version,
+     * the version preceding that one,
+     * and any version newer than that will be retained.
      *
-     * If there is a default version and it is not the one but most recent,
-     * nothing will be changed and an error will be logged.
-     *
-     * If a version is given and no other version is marked as default, then
-     * the given version will be marked as default.
-     *
+     * Returns the updated list of versions.
      */
     let conn
     try {
       conn = await DB.getConnection()
-      // get default and two most recent versions
-      let targetVersion, defaultVersion
-      const mostRecentTwo = await conn.query(`
-        SELECT name, version, is__default AS isDefault, imported
-        FROM datasets
-        WHERE name='${name}' 
-        ORDER BY imported DESC
-        LIMIT 2;`)
-      targetVersion = mostRecentTwo[1]
-      if (version && targetVersion.version !== version) {
-        targetVersion = undefined
-      }
-      if (mostRecentTwo[0] && mostRecentTwo[0].isDefault) {
-        defaultVersion = mostRecentTwo[0]
-        defaultVersion.isMostRecent = true
-      }
-      if (version && !targetVersion) {
-        targetVersion = (await conn.query(`
-        SELECT name, version, is__default AS isDefault
-        FROM datasets
-        WHERE name='${name}' AND version='${version}'`))[0]
-        if (!targetVersion) { // the requested version does not exist
-          throw new Error(`The requested version does not exist. Perhaps you want:\nrevert ${name}`)
+      let versionsToDelete = []
+      let allVersions = await conn.query(`
+        SELECT version, is__default AS isDefault FROM datasets
+        WHERE name = '${name}'
+        ORDER BY imported DESC;`)
+      let defaultVersion
+      while (allVersions.length > 0) {
+        const version = allVersions.shift()
+        if (version.isDefault) {
+          defaultVersion = version
+          versionsToDelete = []
+          allVersions.shift()
+        } else {
+          versionsToDelete.push(version.version)
         }
       }
-      if (!targetVersion && !version) { // there is only one version so no need to do really do anything
-        throw new Error(`There is only one version. Perhaps you want:\ndelete ${name} _ALL_`)
+      if (!defaultVersion) {
+        // never delete the most recent two versions
+        versionsToDelete = versionsToDelete.slice(2)
       }
-      if (!targetVersion && version) { // there is only one version so no need to do really do anything
-        throw new Error(`The requested version does not exist. Perhaps check with:\nlist ${name}`)
+      if (versionsToDelete.length > 0) {
+        await this.remove(name, versionsToDelete, conn)
       }
-      defaultVersion = defaultVersion || (targetVersion.isDefault
-        ? targetVersion
-        : (await conn.query(`
-            SELECT name, version, is__default AS isDefault
-            FROM datasets
-            WHERE name='${name}' AND is__default=TRUE
-            LIMIT 1;`))[0])
-      if (defaultVersion) {
-        if (defaultVersion.version === version || defaultVersion.version === targetVersion.version) { // no need to change anything
-          return this.all(name, conn)
-        }
-        if (defaultVersion.isMostRecent !== true) {
-          throw new Error(`The current default version is ${defaultVersion.version}. Perhaps you want:
-            make-default ${name} ${targetVersion.version}`)
-        }
-      }
-      return await this.makeDefaultVersion(name, targetVersion.version, conn)
+      return await this.all(name, conn)
     } catch (err) {
       Log.error(err)
     } finally {

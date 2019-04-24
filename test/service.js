@@ -21,7 +21,7 @@ describe('DDF Service', function () {
     execFileSync('node', ['src/cli.js', 'delete', 'test', '_ALL_'], cliOptions)
     // load test data
     loadTestData('test') // this will have a version based on the date, e.g. "2019030601"
-    loadTestData('test', 1) // this will have version 'v1'
+    loadTestData('test', 1, 'v1', true) // this will have version 'v1'
     todaysVersion = `${moment.utc().format('YYYYMMDD')}01`
     // start the service
     service = DDFService(true) // "forTesting = true" to avoid throttling and spurious logging.
