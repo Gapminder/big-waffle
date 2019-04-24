@@ -21,9 +21,13 @@ function clearEnvVar (name) {
     delete cliOptions.env[name]
   }
 }
-function loadTestData (name = 'test', version = 0, versionLabel) {
+function loadTestData (name = 'test', version = 0, versionLabel, publish) {
   const versionString = typeof version === 'number' ? `v${version}` : version
-  const args = ['src/cli.js', 'load', '-d', `test/ddf--testdata/${versionString}`, name]
+  const args = ['src/cli.js', 'load', '-d', `test/ddf--testdata/${versionString}`]
+  if (publish === true) {
+    args.push('--publish')
+  }
+  args.push(name)
   if (versionLabel || version) {
     args.push(versionLabel || versionString)
   }

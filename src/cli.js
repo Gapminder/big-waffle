@@ -25,7 +25,7 @@ function load (name, version, dirPath, options) {
         const startTime = Moment.utc()
         await ds.loadFromDirectory(dirPath, options)
         if (options.onlyParse !== true) {
-          await ds.save()
+          await ds.save(options.publish)
         }
         const msg = `Loading dataset ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`
         console.log(msg)
@@ -82,6 +82,13 @@ loadCmd.addArgument(
   }
 )
 loadCmd.addArgument(
+  ['--publish'],
+  {
+    action: 'storeTrue',
+    help: 'Ensure that once loaded this version will be the one served to clients by default'
+  }
+)
+loadCmd.addArgument(
   ['--only-parse'], // this will be 'only_parse' in the parsed arguments!
   {
     action: 'storeTrue',
@@ -124,21 +131,13 @@ makeDefaultCmd.addArgument(
     help: 'The version of the dataset that should be the default'
   }
 )
-const revertCmd = subparsers.addParser('revert', {
-  help: 'Make previous or explicitly given version of a given dataset the default version'
+const purgeCmd = subparsers.addParser('purge', {
+  help: 'Delete old versions of a dataset. The default (or latest) version, the version preceding that one, and any version newer than that will be retained.'
 })
-revertCmd.addArgument(
+purgeCmd.addArgument(
   'dataset',
   {
     help: 'The name of the dataset'
-  }
-)
-revertCmd.addArgument(
-  'version',
-  {
-    defaultValue: undefined,
-    nargs: '?',
-    help: 'The version of the dataset that should be the new default'
   }
 )
 
@@ -155,15 +154,15 @@ function showList (datasets, named = undefined) {
 async function run () {
   const args = parser.parseArgs()
   if (args.command === 'load') {
-    return load(args.dataset, args.version, resolve(args.directory), { assetsOnly: args.assets_only, onlyParse: args.only_parse, replace: args.replace })
+    return load(args.dataset, args.version, resolve(args.directory), { assetsOnly: args.assets_only, onlyParse: args.only_parse, publish: args.publish })
   } else if (args.command === 'delete') {
     return Dataset.remove(args.dataset, args.version)
   } else if (args.command === 'list') {
     return showList(await Dataset.all(args.dataset), args.dataset)
   } else if (args.command === 'make-default') {
     return showList(await Dataset.makeDefaultVersion(args.dataset, args.version), args.dataset)
-  } else if (args.command === 'revert') {
-    return showList(await Dataset.revert(args.dataset, args.version), args.dataset)
+  } else if (args.command === 'purge') {
+    return showList(await Dataset.purge(args.dataset), args.dataset)
   } else {
     return parser.printUsage()
   }

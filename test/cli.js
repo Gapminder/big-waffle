@@ -46,6 +46,7 @@ describe('CLI', function () {
       scriptOutput.toString().should.not.match(/error/i)
       const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2' })
+      datasets.should.contain.something.like({ name: 'test', default: true })
     })
     it('Report error when trying to load existing dataset and version', function () {
       const nrOfDatasets = list('test').length
@@ -58,6 +59,13 @@ describe('CLI', function () {
       const testfn = () => loadTestData('test', 0, 'latest')
       testfn.should.throw()
       list('test').should.be.an('array').with.lengthOf(nrOfDatasets)
+    })
+    it('Load test dataset and publish it', function () {
+      const scriptOutput = loadTestData('test', 0, 'v3', true)
+      scriptOutput.toString().should.not.match(/error/i)
+      const datasets = list('test')
+      datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v3', default: true })
+      datasets.filter(entry => entry.name === 'test' && entry.default).length.should.equal(1)
     })
     it('Load "wide" dataset without errors', function () {
       setEnvVar('DB_MAX_COLUMNS', 10)
@@ -78,6 +86,23 @@ describe('CLI', function () {
       datasets.filter(entry => entry.name === 'test' && entry.default).length.should.equal(1)
     })
     // Tests to actually verify that the service returns the correct data for a default version are in the service suite.
+  })
+  describe('purge', function () {
+    it('Purge with nothing to delete', function () {
+      const args = ['src/cli.js', 'purge', 'test']
+      execFileSync('node', args, cliOptions)
+      const datasets = list('test')
+      datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2', default: true })
+      datasets.length.should.equal(4)
+    })
+    it('Purge only older then default', function () {
+      execFileSync('node', ['src/cli.js', 'make-default', 'test', 'v3'], cliOptions) // make v3 default => v1 can be purged
+      const args = ['src/cli.js', 'purge', 'test']
+      execFileSync('node', args, cliOptions)
+      const datasets = list('test')
+      datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v3', default: true })
+      datasets.length.should.equal(3)
+    })
   })
   describe('delete', function () {
     it('Delete a specific version', function () {
