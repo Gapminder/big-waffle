@@ -869,13 +869,13 @@ class Dataset {
     return this.schema.tableNames
   }
 
-  static async remove (name, version = undefined, connection = undefined) {
+  static async remove (name, version = 'latest', connection = undefined) {
     /*
     * Delete ALL tables for the dataset with the given name.
     *
-    * If the version is given as 'all', the tables for all versions will be deleted!
-    * If no version is given the default version will be deleted. And if no default
-    * version exists, nothing will be deleted.
+    * If the version is given as '_ALL_', the tables for all versions will be deleted!
+    * If no version is given the most recently loaded version will be deleted, unless it
+    * is marked as "default."
     * The version parameter can also be a list of versions.
     */
     let conn
@@ -890,13 +890,20 @@ class Dataset {
         if (version && version.toUpperCase() === '_ALL_') {
           msg += ` (ALL versions)`
           version = null
-        } else if (version === undefined) {
-          // get the default version
-          const defaultVersions = await conn.query(`SELECT version FROM datasets WHERE name = '${name}' AND is__default IS TRUE`)
-          if (defaultVersions.length !== 1) {
-            throw new Error(`Could not determine default version for ${name}`)
+        } else if (version === 'latest') {
+          // get the latest version
+          const versions = await conn.query(`
+            SELECT version, is__default AS isDefault FROM datasets 
+            WHERE name = '${name}'
+            ORDER BY imported DESC;`)
+          if (versions.length < 1) {
+            // nothing to delete
+            return await this.all(name, conn)
           }
-          version = defaultVersions[0].version
+          if (versions.length > 0 && versions[0].isDefault) {
+            throw new Error(`Won't delete the default version for ${name}`)
+          }
+          version = versions[0].version
         }
         if (version) {
           filters.push(`version = '${version}'`)
@@ -925,8 +932,10 @@ class Dataset {
       }))
       // TODO: remove assets from cloud storage ?
       await conn.query(`DELETE FROM datasets WHERE ${filters.join(' AND ')};`)
+      return await this.all(name, conn)
     } catch (err) {
-      Log.error(err)
+      console.info(err.message)
+      Log.warn(err)
     } finally {
       if (connection === undefined && conn.end) conn.end()
     }
@@ -936,20 +945,36 @@ class Dataset {
     let conn = connection
     try {
       conn = conn || await DB.getConnection()
-      // Unset any default version
-      await conn.query(`UPDATE datasets SET is__default = FALSE WHERE name = '${name}';`)
-      // Set the given version to be the default
-      await conn.query(`UPDATE datasets SET is__default = TRUE WHERE name = '${name}' AND version = '${version}';`)
-      const defaultVersions = await conn.query(`
-        SELECT name, version FROM datasets 
-        WHERE name = '${name}' AND is__default = TRUE;`)
-      if (defaultVersions.length !== 1 || defaultVersions[0].version !== version) {
-        throw new Error(`Default version for ${name} could not be set to ${version}! Check database!`)
+      const versions = await conn.query(`
+      SELECT name, version, is__default AS isDefault FROM datasets 
+      WHERE name = '${name}' ORDER BY imported DESC;`)
+      if (versions.length < 1) {
+        throw new Error(`Dataset ${name} does not exist.`)
       }
-      Log.info(`Default version for ${defaultVersions[0].name} is now ${defaultVersions[0].version}`)
+      if (version !== 'latest' && versions.filter(v => v.version === version).length < 1) {
+        throw new Error(`Version ${name}.${version} does not exist.`)
+      }
+      // Unset any default version
+      await conn.query(`UPDATE datasets SET is__default = FALSE WHERE name = '${name}' AND is__default = TRUE;`)
+      if (version === 'latest') {
+        if (versions.filter(v => v.isDefault).length > 0) {
+          throw new Error(`Default version for ${name} could not be set to ${version}! Check database!`)
+        }
+      } else {
+        // Set the given version to be the default
+        await conn.query(`UPDATE datasets SET is__default = TRUE WHERE name = '${name}' AND version = '${version}';`)
+        const defaultVersions = await conn.query(`
+          SELECT name, version FROM datasets 
+          WHERE name = '${name}' AND is__default = TRUE;`)
+        if (defaultVersions.length !== 1 || defaultVersions[0].version !== version) {
+          throw new Error(`Default version for ${name} could not be set to ${version}! Check database!`)
+        }
+        Log.info(`Default version for ${defaultVersions[0].name} is now ${defaultVersions[0].version}`)
+      }
       return await this.all(name, conn)
     } catch (err) {
-      Log.error(err)
+      console.info(err.message)
+      Log.warn(err)
     } finally {
       if (connection === undefined && conn.end) conn.end()
     }
@@ -975,7 +1000,8 @@ class Dataset {
       }
       await this.makeDefaultVersion(name, versions[0].version, connection)
     } catch (err) {
-      Log.error(err)
+      console.info(err.message)
+      Log.warn(err)
     } finally {
       if (connection === undefined && conn.end) conn.end()
     }

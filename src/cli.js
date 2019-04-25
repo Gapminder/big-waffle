@@ -128,7 +128,7 @@ makeDefaultCmd.addArgument(
 makeDefaultCmd.addArgument(
   'version',
   {
-    help: 'The version of the dataset that should be the default'
+    help: `The version of the dataset that should be the default, can be 'latest'.`
   }
 )
 const purgeCmd = subparsers.addParser('purge', {
@@ -141,8 +141,12 @@ purgeCmd.addArgument(
   }
 )
 
-function showList (datasets, named = undefined) {
-  if (datasets && datasets.length > 0) {
+async function showList (datasets, named = undefined) {
+  if (!Array.isArray(datasets)) {
+    process.exitCode = 1
+    datasets = named ? await Dataset.all(named) : []
+  }
+  if (datasets.length > 0) {
     for (const dataset of datasets) {
       console.log(`${dataset.name}.${dataset.version}${dataset.is__default ? '*' : ''}`)
     }
@@ -156,7 +160,7 @@ async function run () {
   if (args.command === 'load') {
     return load(args.dataset, args.version, resolve(args.directory), { assetsOnly: args.assets_only, onlyParse: args.only_parse, publish: args.publish })
   } else if (args.command === 'delete') {
-    return Dataset.remove(args.dataset, args.version)
+    return showList(await Dataset.remove(args.dataset, args.version), args.dataset)
   } else if (args.command === 'list') {
     return showList(await Dataset.all(args.dataset), args.dataset)
   } else if (args.command === 'make-default') {
