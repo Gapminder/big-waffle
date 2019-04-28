@@ -1,5 +1,5 @@
 # Use an official NodeJS runtime as a parent image
-FROM node:alpine as builder
+FROM node:10-alpine as builder
 
 ## Install build toolchain, install node deps and compile native add-ons
 RUN apk add --no-cache --virtual .gyp python make g++

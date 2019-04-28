@@ -826,7 +826,7 @@ class Dataset {
      *
      * If there is another default version for datasets with the same name
      * make this version the new default.
-     * If there is no default version and this version is the most recent, 'latest',
+     * If there is no default version and this version is the most recent, i.e. the 'latest',
      * nothing needs to be done.
      */
     Log.info(`Publishing ${this.name}.${this.version}`)
@@ -957,9 +957,7 @@ class Dataset {
       // Unset any default version
       await conn.query(`UPDATE datasets SET is__default = FALSE WHERE name = '${name}' AND is__default = TRUE;`)
       if (version === 'latest') {
-        if (versions.filter(v => v.isDefault).length > 0) {
-          throw new Error(`Default version for ${name} could not be set to ${version}! Check database!`)
-        }
+        // Nothing else to do, i.e. there will be no explicit default.
       } else {
         // Set the given version to be the default
         await conn.query(`UPDATE datasets SET is__default = TRUE WHERE name = '${name}' AND version = '${version}';`)
