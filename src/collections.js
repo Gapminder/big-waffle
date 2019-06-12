@@ -203,6 +203,9 @@ class Collection {
       if (type === `VARCHAR`) {
         type = `VARCHAR(${def.size})`
       }
+      if (['TINYINT', 'INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT'].includes(type)) {
+        type = `${type} NOT NULL`
+      }
       return `${statement} \`${columnName}\` ${type},`
     }, '')
     let sql = `CREATE TABLE ${csvTableName} (${columnDefs.slice(0, -1)}) 
@@ -639,7 +642,7 @@ END;`
       return this.loadFromCSVFile(path, keyMap, translations, delimiter) // slower, but can handle large cells
     }
     // 1. Create a (temporary) table for the CSV file, using the CONNECT db engine.
-    const tmpTableName = await this.tableForCSVFile(path, keyMap = {}, delimiter = ',')
+    const tmpTableName = await this.tableForCSVFile(path, keyMap, delimiter = ',')
     // 2. Copy all records
     await this.copyValues(columns, tmpTableName)
     // 3. Delete the temporary table
