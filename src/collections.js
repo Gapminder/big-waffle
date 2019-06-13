@@ -193,9 +193,9 @@ class Collection {
      */
     const csvTableName = `TT${Crypto.createHash('md5').update(path).digest('hex')}`
     const csvHeader = await firstline(path)
-    const csvColumns = this._columns(csvHeader.split(delimiter))
+    const csvColumns = this._columns(csvHeader.split(delimiter).map(columnName => keyMap[columnName] || columnName))
     const columnDefs = csvColumns.reduce((statement, columnName) => {
-      const def = this._schema[keyMap[columnName] || columnName]
+      const def = this._schema[columnName]
       let type = def.sqlType
       if (type === `JSON`) { // JSON type is not supported for CSV files
         type = `VARCHAR`
@@ -203,7 +203,12 @@ class Collection {
       if (type === `VARCHAR`) {
         type = `VARCHAR(${def.size})`
       }
-      if (['TINYINT', 'INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT'].includes(type)) {
+      /* The MariaDb CONNECT engine doesn't support an explicit notion of NULL for CSV files
+       * To avoid zeros being read as NULL for parts of the key of this table we have to indicate
+       * that the (numeric) column cannot be NULL.
+       * Perhaps should do this for all numeric columns, but see https://jira.mariadb.org/browse/MDEV-19744.
+       */
+      if (this.keys.has(columnName) && ['TINYINT', 'INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT'].includes(type)) {
         type = `${type} NOT NULL`
       }
       return `${statement} \`${columnName}\` ${type},`
