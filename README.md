@@ -117,6 +117,27 @@ These are the typical steps:
 `git clone ....`
 `npm src/cli.js load -d ddf-gapminder-systema_globalis systema_globalis`
 
+## Slack API
+`/bwlist [<dataset>]`  
+List all versions of all datasets. Provide a dataset name to see all versions of (only) that dataset.  
+Example: `/bwlist SG`  
+  
+`/bwload [[-N | --name] <name>] [--publish] [-D | --dateversion] [--ddfdir <ddfdirectory>] *<gitCloneUrl>* [<branch>]`  
+Load (a new version of) a dataset into BigWaffle. This can take 1-60 minutes!  
+Example:  `/bwload -N SG https://github.com/open-numbers/ddf--gapminder--systema_globalis.git`  
+
+`/bwpublish <dataset>`  
+Publish the most recently loaded version of a dataset. This unsets any default version, which means that the most recent version will be served by default.  
+Example: `/bwpublish SG`  
+
+`/bwdefault <dataset> <version>`  
+Make a given version of a dataset the default version. Use this to “revert” to an earlier version.  
+Example: `/bwdefault SG 2019032501`  
+  
+`/bwpurge <dataset>`  
+Remove old versions of a given dataset. This will remove versions that were loaded before the current default version, except the version loaded right before the current default.  
+Example: `/bwpurge SG`  
+  
 ## Limitations and Known Issues
 
 ### "Wide" datasets
