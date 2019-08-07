@@ -15,7 +15,7 @@ const { Dataset, Query, RecordPrinter } = require('./ddf')
 const { AllowCaching, BehindProxy, HTTPPort, CPUThrottle, DBThrottle } = require('./env')
 const Log = require('./log')('service')
 
-module.exports.DDFService = function (forTesting = false, behindProxy = true) {
+module.exports.DDFService = function (forTesting = false) {
   const app = new Koa()
   app.proxy = BehindProxy
   const api = new Router() // routes for the main API
