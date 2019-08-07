@@ -30,7 +30,8 @@ const envVars = [
   { name: 'AssetStore', envVar: 'ASSET_STORE', _default: 'GCS' }, // one of ['GCS'] (and later perhaps S3, etc.)
   { name: 'AssetStoreBucket', envVar: 'ASSET_STORE_BUCKET' },
   { name: 'SlackChannelUrl', envVar: 'SLACK_CHANNEL_URL' },
-  { name: 'MaxColumns', envVar: 'DB_MAX_COLUMNS', _default: 1000 }
+  { name: 'MaxColumns', envVar: 'DB_MAX_COLUMNS', _default: 1000 },
+  { name: 'BehindProxy', envVar: 'BEHIND_PROXY', _default: true } // set to FALSE to ignore proxy headers such as "X-Forwarded-Proto"
 ]
 
 function envCopy () {
