@@ -12,11 +12,12 @@ const BasicAuth = require('basic-auth')
 
 const { DB } = require('./maria')
 const { Dataset, Query, RecordPrinter } = require('./ddf')
-const { AllowCaching, HTTPPort, CPUThrottle, DBThrottle } = require('./env')
+const { AllowCaching, BehindProxy, HTTPPort, CPUThrottle, DBThrottle } = require('./env')
 const Log = require('./log')('service')
 
-module.exports.DDFService = function (forTesting = false) {
+module.exports.DDFService = function (forTesting = false, behindProxy = true) {
   const app = new Koa()
+  app.proxy = BehindProxy
   const api = new Router() // routes for the main API
 
   const loaderIOToken = process.env.LOADER_IO_TOKEN
