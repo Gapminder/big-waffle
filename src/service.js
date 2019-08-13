@@ -136,10 +136,10 @@ module.exports.DDFService = function (forTesting = false) {
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
       } else {
         if (err.sql) {
-          Log.warning(err.sql)
+          Log.warn(err.sql)
           delete err.sql
         }
-        Log.error({ err, req: ctx.request, ddfQuery: json })
+        Log.warn({ err, req: ctx.request, ddfQuery: json }, `Unknown error: ${err.message}`)
       }
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
     }
