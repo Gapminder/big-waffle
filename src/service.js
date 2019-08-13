@@ -135,9 +135,11 @@ module.exports.DDFService = function (forTesting = false) {
         Log.warn('DDF query request timed out')
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
       } else {
-        const payload = { err, req: ctx.request, ddfQuery: json, sql: err.sql }
-        if (err.sql) delete err.sql
-        Log.error(payload)
+        if (err.sql) {
+          Log.warning(err.sql)
+          delete err.sql
+        }
+        Log.error({ err, req: ctx.request, ddfQuery: json })
       }
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
     }
