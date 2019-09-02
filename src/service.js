@@ -132,6 +132,7 @@ module.exports.DDFService = function (forTesting = false) {
       } else if (err.code === 'DDF_DATASET_NOT_FOUND') {
         ctx.throw(404, err.message)
       } else if (err instanceof QueryError) {
+        Log.warn({ err, req: ctx.request, ddfQuery: json })
         ctx.throw(400, err.message)
       } else if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
         Log.warn('DDF query request timed out')
