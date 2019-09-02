@@ -11,7 +11,7 @@ const Urlon = require('urlon')
 const BasicAuth = require('basic-auth')
 
 const { DB } = require('./maria')
-const { Dataset, Query, RecordPrinter } = require('./ddf')
+const { Dataset, Query, QueryError, RecordPrinter } = require('./ddf')
 const { AllowCaching, BehindProxy, HTTPPort, CPUThrottle, DBThrottle } = require('./env')
 const Log = require('./log')('service')
 
@@ -131,6 +131,8 @@ module.exports.DDFService = function (forTesting = false) {
         ctx.throw(401, 'Unauthorized')
       } else if (err.code === 'DDF_DATASET_NOT_FOUND') {
         ctx.throw(404, err.message)
+      } else if (err instanceof QueryError) {
+        ctx.throw(400, err.message)
       } else if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
         Log.warn('DDF query request timed out')
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)

@@ -259,7 +259,11 @@ class DDFSchema {
         const tableColumn = this.domains[column] || column
         const columnName = tableName ? `${tableName}.${tableColumn}` : tableColumn
         let condition = filter[column] // condition is either an object, or one of boolean, number, string or "variable" like '$geo'
-        if (typeof condition === 'object') {
+        if (condition === null) { // but every now and then the condition is "null", which should not be allowed
+          const whereErr = QuerySyntaxError.WrongWhere()
+          whereErr.message = `Invalid where clause ${column ? `for ${column}` : ''}. Condition is "null".`
+          throw whereErr
+        } else if (typeof condition === 'object') {
           if (Object.keys(condition).length > 1) {
             // make the implicit $and explicit
             filters.push({ $and: Object.keys(condition).reduce((subFilters, operator) => {
