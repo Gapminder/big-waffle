@@ -142,6 +142,10 @@ module.exports.DDFService = function (forTesting = false) {
           Log.warn(err.sql)
           delete err.sql
         }
+        if (err.code === 'ER_BAD_FIELD_ERROR') {
+          const shortMsg = err.message.match(/Unknown column \S*\s/)
+          ctx.throw(400, shortMsg ? shortMsg[0].replace('column', 'concept') : 'DDF query seems to refer to an unknown concept')
+        }
         Log.warn({ err, req: ctx.request, ddfQuery: json }, `Unknown error: ${err.message}`)
       }
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
