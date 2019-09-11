@@ -6,11 +6,6 @@ const { DB } = require('./maria')
 const { Dataset } = require('./ddf/datasets')
 const { Slack } = require('./notifications')
 
-async function throwAndSlackError (msg) {
-  await Slack(msg)
-  throw new Error(msg)
-}
-
 function load (name, version, dirPath, options) {
   var msg
   if (version === 'latest') {
@@ -22,7 +17,9 @@ function load (name, version, dirPath, options) {
         await ds.importAssets(dirPath)
       } else {
         if (!ds.isNew && version) {
-          await throwAndSlackError(`Dataset ${name}.${version} already exists`)
+          msg = `Dataset ${name}.${version} already exists`
+          await Slack(msg)
+          throw new Error(msg)
         }
         if (!ds.isNew || !version) {
           ds.incrementVersion()
