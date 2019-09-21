@@ -208,14 +208,14 @@ class Collection {
        * that the (numeric) column cannot be NULL.
        * Perhaps should do this for all numeric columns, but see https://jira.mariadb.org/browse/MDEV-19744.
        */
-      if (this.keys.has(columnName) && ['TINYINT', 'INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT'].includes(type)) {
+      if (['TINYINT', 'INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT'].includes(type)) {
         type = `${type} NOT NULL`
       }
       return `${statement} \`${columnName}\` ${type},`
     }, '')
     let sql = `CREATE TABLE ${csvTableName} (${columnDefs.slice(0, -1)}) 
     engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
-    Log.debug(sql)
+    Log.info(sql)
     const conn = await this.getConnection()
     await conn.query(sql)
     return csvTableName
