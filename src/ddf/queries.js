@@ -114,7 +114,7 @@ class RecordPrinter extends Transform {
       if (this.filterNullRecords) {
         // don't push a record that only contains null values
         for (let idx = this._firstValueIndex; idx < record.length; idx++) {
-          if (record[idx]) {
+          if (record[idx] !== null) {
             this.push(`${this.recordCounter ? ',' : ''}${JSON.stringify(record)}`)
             this.recordCounter += 1
             break
