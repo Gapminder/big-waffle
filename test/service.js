@@ -390,7 +390,24 @@ describe('DDF Service', function () {
           response.body.should.be.an('object')
           response.body.should.have.keys(['header', 'rows', 'version'])
           response.body.header.should.have.members(['country', 'gas', 'time', 'emissions_as_an_extremely_long_indicator_name_of_60plus_chars'])
-          response.body.rows.should.have.lengthOf(18)
+          response.body.rows.should.have.lengthOf(20)
+        })
+    })
+    it('null and zero values', function () {
+      return client.query({
+        select: { key: ['country', 'gas', 'time'], value: ['emissions_as_an_extremely_long_indicator_name_of_60plus_chars'] },
+        from: 'datapoints',
+        where: { gas: 'sulfur' },
+        order_by: ['time']
+      }, 'v1')
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['country', 'gas', 'time', 'emissions_as_an_extremely_long_indicator_name_of_60plus_chars'])
+          response.body.rows.should.have.lengthOf(3) // the row with null as value should not be there
+          response.body.rows.should.contain.one.eql([ 'fin', 'sulfur', 2001, 0 ]) // there should be a zero value
         })
     })
     it('query latest version', function () {

@@ -67,6 +67,13 @@ describe('CLI', function () {
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v3', default: true })
       datasets.filter(entry => entry.name === 'test' && entry.default).length.should.equal(1)
     })
+    it('Load dataset with zeros and null values but issue warning', function () {
+      const scriptOutput = loadTestData('test', 1, 'zeros')
+      scriptOutput.toString().should.match(/contains null value/i)
+      scriptOutput.toString().should.not.match(/error/i)
+      const datasets = list('test')
+      datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'zeros' })
+    })
     it('Load "wide" dataset without errors', function () {
       setEnvVar('DB_MAX_COLUMNS', 10)
       const scriptOutput = loadTestData('test', 'wide', 'wide')
@@ -93,7 +100,7 @@ describe('CLI', function () {
       execFileSync('node', args, cliOptions)
       const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v2', default: true })
-      datasets.length.should.equal(4)
+      datasets.length.should.equal(5)
     })
     it('Purge only older then default', function () {
       execFileSync('node', ['src/cli.js', 'make-default', 'test', 'v3'], cliOptions) // make v3 default => v1 can be purged
@@ -101,7 +108,7 @@ describe('CLI', function () {
       execFileSync('node', args, cliOptions)
       const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test', version: 'v3', default: true })
-      datasets.length.should.equal(3)
+      datasets.length.should.equal(4)
     })
   })
   describe('delete', function () {
