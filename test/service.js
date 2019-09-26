@@ -508,4 +508,49 @@ describe('DDF Service', function () {
         })
     })
   })
+
+  describe('Protected dataset versions', function () {
+    before(function loadProtectedTest () {
+      loadTestData('test', 'v0', 'protected', false, 'foobar')
+    })
+
+    it('query protected dataset without password', function () {
+      return client.query({
+        select: { key: ['key', 'value'], value: [] },
+        from: 'concepts.schema'
+      }, 'protected')
+        .set('Accept', 'text/plain')
+        .expect(401)
+        .then(response => {
+          response.text.should.contain('Unauthorized')
+        })
+    })
+
+    it('query protected dataset with incorrect password', function () {
+      return client.query({
+        select: { key: ['key', 'value'], value: [] },
+        from: 'concepts.schema'
+      }, 'protected')
+        .set('Accept', 'text/plain')
+        .auth('test', 'foo')
+        .expect(401)
+        .then(response => {
+          response.text.should.contain('Unauthorized')
+        })
+    })
+
+    it('query protected dataset with password', function () {
+      return client.query({
+        select: { key: ['key', 'value'], value: [] },
+        from: 'concepts.schema'
+      }, 'protected')
+        .set('Accept', 'application/json')
+        .auth('test', 'foobar')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+        })
+    })
+  })
 })

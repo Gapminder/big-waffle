@@ -7,6 +7,7 @@ const { Dataset } = require('./ddf/datasets')
 const { Slack } = require('./notifications')
 
 function load (name, version, dirPath, options) {
+  var msg
   if (version === 'latest') {
     throw new Error(`Cannot use "latest" as a version`)
   }
@@ -16,10 +17,15 @@ function load (name, version, dirPath, options) {
         await ds.importAssets(dirPath)
       } else {
         if (!ds.isNew && version) {
-          throw new Error(`Dataset ${name}.${version} already exists`)
+          msg = `Dataset ${name}.${version} already exists`
+          await Slack(msg)
+          throw new Error(msg)
         }
         if (!ds.isNew || !version) {
           ds.incrementVersion()
+        }
+        if (ds.isNew && options.password) {
+          ds.password = options.password
         }
         await Slack(`Starting to load dataset ${name} from ${dirPath}${version ? `.${version}` : ''}`)
         const startTime = Moment.utc()
@@ -27,7 +33,7 @@ function load (name, version, dirPath, options) {
         if (options.onlyParse !== true) {
           await ds.save(options.publish)
         }
-        const msg = `Loading dataset ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`
+        msg = `Loading dataset ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`
         console.log(msg)
         await Slack(msg)
       }
@@ -79,6 +85,12 @@ loadCmd.addArgument(
     nargs: '?',
     default: '.',
     help: 'Path to the directory that holds the datapackage.json file'
+  }
+)
+loadCmd.addArgument(
+  ['--password'],
+  {
+    help: 'Plain password to protect this version of the dataset'
   }
 )
 loadCmd.addArgument(
@@ -158,7 +170,7 @@ async function showList (datasets, named = undefined) {
 async function run () {
   const args = parser.parseArgs()
   if (args.command === 'load') {
-    return load(args.dataset, args.version, resolve(args.directory), { assetsOnly: args.assets_only, onlyParse: args.only_parse, publish: args.publish })
+    return load(args.dataset, args.version, resolve(args.directory), { assetsOnly: args.assets_only, onlyParse: args.only_parse, publish: args.publish, password: args.password })
   } else if (args.command === 'delete') {
     return showList(await Dataset.remove(args.dataset, args.version), args.dataset)
   } else if (args.command === 'list') {

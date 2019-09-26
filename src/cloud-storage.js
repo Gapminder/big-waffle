@@ -7,7 +7,7 @@ class CloudStore {
   }
   async urlFor (reference, secure = false) {
     // Return a fully qualified HTTP URL to the stored reference.
-    return Promise.resolve(`${secure ? 'https' : 'http'}://${this.baseDir || ''}/${reference}`)
+    return Promise.resolve(`//${this.baseDir || ''}/${reference}`)
   }
 
   static local () { // For testing, set ASSET_STORE=local

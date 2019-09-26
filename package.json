@@ -17,6 +17,7 @@
     "@google-cloud/logging-bunyan": "^0.10.1",
     "@google-cloud/storage": "^2.5.0",
     "argparse": "^1.0.10",
+    "basic-auth": "^2.0.1",
     "bunyan": "^1.8.12",
     "csv-parse": "^4.4.1",
     "firstline": "^2.0.2",

@@ -1,3 +1,5 @@
+const assert = require('assert')
+const Crypto = require('crypto')
 const FS = require('fs').promises
 const JSONFile = require('jsonfile')
 const Moment = require('moment')
@@ -257,7 +259,11 @@ class DDFSchema {
         const tableColumn = this.domains[column] || column
         const columnName = tableName ? `${tableName}.${tableColumn}` : tableColumn
         let condition = filter[column] // condition is either an object, or one of boolean, number, string or "variable" like '$geo'
-        if (typeof condition === 'object') {
+        if (condition === null) { // but every now and then the condition is "null", which should not be allowed
+          const whereErr = QuerySyntaxError.WrongWhere()
+          whereErr.message = `Invalid where clause ${column ? `for ${column}` : ''}. Condition is "null".`
+          throw whereErr
+        } else if (typeof condition === 'object') {
           if (Object.keys(condition).length > 1) {
             // make the implicit $and explicit
             filters.push({ $and: Object.keys(condition).reduce((subFilters, operator) => {
@@ -436,9 +442,10 @@ class Dataset {
    *
    * A Dataset exposes either the latest version or a named version.
    */
-  constructor (name, version) {
+  constructor (name, version, password) {
     this.name = name
     this.version = version
+    this._password = password
   }
 
   toJSON () {
@@ -520,6 +527,9 @@ class Dataset {
           delete doc[field]
           return flt
         }, '')
+        if (this.hashedPassword) {
+          filter += ` password = '${this.hashedPassword}',`
+        }
         sql = `INSERT INTO datasets SET${filter} definition = '${JSON.stringify(doc)}';`
       } else {
         filter = this._keyFields.reduce((flt, field) => {
@@ -558,7 +568,7 @@ class Dataset {
   }
 
   static async open (name, version = undefined, mustExist = false) {
-    let sql = `SELECT name, version, definition FROM datasets WHERE name = '${name}'`
+    let sql = `SELECT name, version, definition, password FROM datasets WHERE name = '${name}'`
     if (version === 'latest') {
       sql += ` ORDER BY imported DESC;`
     } else if (version) {
@@ -571,7 +581,7 @@ class Dataset {
     const docs = await DB.query(sql)
     const doc = docs && docs.length >= 1 ? docs[0] : undefined
     if (doc) {
-      dataset = new this(name, doc.version)
+      dataset = new this(name, doc.version, doc.password)
       dataset.initialize(JSON.parse(doc.definition))
       Log.debug(`Loaded dataset ${dataset.name}.${dataset.version} from DB`)
       if (dataset._isNew) {
@@ -588,7 +598,25 @@ class Dataset {
     return dataset
   }
 
-  async queryStream (ddfQuery, abortCheck = () => false) {
+  get isProtected () {
+    return this._password && true
+  }
+
+  get hashedPassword () {
+    return this._password
+  }
+
+  set password (plainTextPassword) {
+    this._password = Crypto.createHash('sha256').update(plainTextPassword).digest('hex') // this line is equivalent to the MariaDB function "SHA2(plainTextPassowrd, 256)"
+  }
+
+  verifyCredential (credential) {
+    assert(credential, 'missing credential')
+    const hashedPassword = Crypto.createHash('sha256').update(credential.pass).digest('hex')
+    assert(credential.name === this.name && hashedPassword === this.hashedPassword, 'invalid password')
+  }
+
+  async queryStream (ddfQuery, abortCheck = () => false, credential) {
     /*
      * response for {select: {key: ['key', 'value'], value: []}, from: 'concepts.schema'} should be an array with the column names
      * of the concepts. Like [{key: ['concept'], value: 'color'}, {key: ['concept'], value: 'concept_type'}, ....]
@@ -605,6 +633,17 @@ class Dataset {
      *
      * Time values need to be parsed by the reader/client, the service just returns strings.
      */
+    if (this.isProtected) {
+      try {
+        this.verifyCredential(credential)
+      } catch (err) {
+        Log.debug(err.message)
+        const error = new Error('correct password required')
+        error.code = 'PASSWORD_REQUIRED'
+        throw error
+      }
+    }
+
     if (ddfQuery.isForSchema) {
       return this.schema.queryStream(ddfQuery)
     }
@@ -819,6 +858,28 @@ class Dataset {
       }
     }
     await Promise.all(assets.map(asset => CloudStore.upload(`${dirPath}/assets/${asset}`, `${this.name}/${this.version}/${asset}`)))
+  }
+
+  async protectWith (password, connection = undefined) {
+    /*
+     * Ensure that this version will be protected by the given password.
+     */
+    Log.info(`Protecting ${this.name}.${this.version}`)
+    let conn
+    try {
+      conn = connection || await DB.getConnection()
+      await conn.query(`
+        UPDATE datasets SET password = SHA2(${password}, 256)
+        WHERE name = '${this.name} AND version = '${this.version}';`)
+      const result = await conn.query(`
+        SELECT password FROM datasets 
+        WHERE name = '${this.name} AND version = '${this.version}';`)
+      this._password = result.password
+    } catch (err) {
+      Log.error(err)
+    } finally {
+      if (connection === undefined && conn.end) conn.end()
+    }
   }
 
   async publish (connection = undefined) {
@@ -1065,7 +1126,8 @@ DB.query(`CREATE TABLE datasets (
     name VARCHAR(255) NOT NULL, 
     version VARCHAR(40), 
     is__default BOOLEAN DEFAULT FALSE, definition JSON,
-    imported DATETIME DEFAULT CURRENT_TIMESTAMP);`)
+    imported DATETIME DEFAULT CURRENT_TIMESTAMP,
+    password VARCHAR(80) DEFAULT NULL);`)
   .then(() => { // TODO: would be cool to have a CONSTRAINT that would ensure only one version of a dataset can be marked as default
     Log.info(`Created new datasets table`)
   })

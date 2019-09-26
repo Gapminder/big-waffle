@@ -8,14 +8,16 @@ const Koa = require('koa')
 const Router = require('koa-router')
 const Moment = require('moment')
 const Urlon = require('urlon')
+const BasicAuth = require('basic-auth')
 
 const { DB } = require('./maria')
-const { Dataset, Query, RecordPrinter } = require('./ddf')
-const { AllowCaching, HTTPPort, CPUThrottle, DBThrottle } = require('./env')
+const { Dataset, Query, QueryError, RecordPrinter } = require('./ddf')
+const { AllowCaching, BehindProxy, HTTPPort, CPUThrottle, DBThrottle } = require('./env')
 const Log = require('./log')('service')
 
 module.exports.DDFService = function (forTesting = false) {
   const app = new Koa()
+  app.proxy = BehindProxy
   const api = new Router() // routes for the main API
 
   const loaderIOToken = process.env.LOADER_IO_TOKEN
@@ -96,7 +98,7 @@ module.exports.DDFService = function (forTesting = false) {
       ctx.throw(400, err instanceof SyntaxError ? `Query is malformed: ${err.message}` : err.message)
     }
 
-    let recordStream, queryStart
+    let dataset, recordStream, queryStart, allowCaching
 
     // make sure that clients that are not very patient don't cause problems
     for (const ev of ['aborted', 'close']) {
@@ -109,7 +111,7 @@ module.exports.DDFService = function (forTesting = false) {
 
     try {
       Log.debug(`DB has ${DB.idleConnections()} idle connections and ${DB.taskQueueSize()} pending connection requests`)
-      const dataset = await Dataset.open(ctx.params.dataset, ctx.params.version, true)
+      dataset = await Dataset.open(ctx.params.dataset, ctx.params.version, true)
       if (ctx.headerSent || ctx.req.aborted) {
         return
       }
@@ -118,20 +120,33 @@ module.exports.DDFService = function (forTesting = false) {
         return
       } else {
         version = dataset.version
+        allowCaching = AllowCaching && dataset.isProtected !== true
         queryStart = Moment()
-        recordStream = await dataset.queryStream(ddfQuery, () => ctx.headerSent || ctx.req.aborted)
+        recordStream = await dataset.queryStream(ddfQuery, () => ctx.headerSent || ctx.req.aborted, BasicAuth(ctx.req))
       }
     } catch (err) {
       if (recordStream && recordStream.cleanUp) recordStream.cleanUp(err)
-      if (err.code === 'DDF_DATASET_NOT_FOUND') {
+      if (err.code === 'PASSWORD_REQUIRED') {
+        ctx.append('WWW-Authenticate', `Basic realm="Access to ${dataset.name} data", charset="UTF-8"`)
+        ctx.throw(401, 'Unauthorized')
+      } else if (err.code === 'DDF_DATASET_NOT_FOUND') {
         ctx.throw(404, err.message)
+      } else if (err instanceof QueryError) {
+        Log.warn({ err, req: ctx.request, ddfQuery: json })
+        ctx.throw(400, err.message)
       } else if (err.code === 'ER_GET_CONNECTION_TIMEOUT') {
         Log.warn('DDF query request timed out')
         ctx.throw(503, `Sorry, the DDF Service seems too busy, try again later`)
       } else {
-        const payload = { err, req: ctx.request, ddfQuery: json, sql: err.sql }
-        if (err.sql) delete err.sql
-        Log.error(payload)
+        if (err.sql) {
+          Log.warn(err.sql)
+          delete err.sql
+        }
+        if (err.code === 'ER_BAD_FIELD_ERROR') {
+          const shortMsg = err.message.match(/Unknown column \S*\s/)
+          ctx.throw(400, shortMsg ? shortMsg[0].replace('column', 'concept') : 'DDF query seems to refer to an unknown concept')
+        }
+        Log.warn({ err, req: ctx.request, ddfQuery: json }, `Unknown error: ${err.message}`)
       }
       ctx.throw(500, `Sorry, the DDF Service seems to have a problem, try again later`)
     }
@@ -149,8 +164,8 @@ module.exports.DDFService = function (forTesting = false) {
       }
       ctx.status = 200
       ctx.type = 'application/json'
-      ctx.set('Cache-Control', AllowCaching ? 'public, max-age=31536000, immutable' : 'no-cache, no-store, must-revalidate')
-      if (AllowCaching) {
+      ctx.set('Cache-Control', allowCaching ? 'public, max-age=31536000, immutable' : 'no-cache, no-store, must-revalidate')
+      if (allowCaching) {
         ctx.set('Cache-Tag', `${ctx.params.dataset}/${version}`)
       }
       ctx.compress = ctx.acceptsEncodings('gzip', 'deflate') !== false
