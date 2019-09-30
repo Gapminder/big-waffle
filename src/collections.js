@@ -208,7 +208,7 @@ class Collection {
        * that the (numeric) column cannot be NULL.
        * Perhaps should do this for all numeric columns, but see https://jira.mariadb.org/browse/MDEV-19744.
        */
-      if (this.keys.has(columnName) && ['TINYINT', 'INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT'].includes(type)) {
+      if (def.hasZeros && ['TINYINT', 'INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT'].includes(type)) {
         type = `${type} NOT NULL`
       }
       return `${statement} \`${columnName}\` ${type},`
@@ -512,10 +512,13 @@ class Table extends Collection {
     return `SELECT ${columns} FROM \`${this.tableName}\`${innerJoin}${where}${order};`
   }
 
-  _prepareRecord (record, _columnNames = {}) {
+  _prepareRecord (record, _columnNames = {}, ignoreNullValues = false) {
     const preparedRecord = Object.assign({}, record)
     for (const field of Object.keys(record)) {
-      if (preparedRecord[field] === '' || preparedRecord[field] === undefined || preparedRecord[field] === null) {
+      if (preparedRecord[field] === '' || preparedRecord[field] === undefined) {
+        preparedRecord[field] = null
+      }
+      if (ignoreNullValues && preparedRecord[field] === null) {
         delete preparedRecord[field]
         continue
       }
@@ -527,12 +530,12 @@ class Table extends Collection {
     return preparedRecord
   }
 
-  _updateRecord (record, keyMap, language) {
+  _updateRecord (record, keyMap, ignoreNullValues = false, language) {
     /*
      * Return a promise!
      */
     try {
-      const preparedRecord = this._prepareRecord(record, keyMap)
+      const preparedRecord = this._prepareRecord(record, keyMap, ignoreNullValues)
       const filter = {}
       const sets = {}
       for (const field of Object.keys(preparedRecord)) {
@@ -620,15 +623,34 @@ END;`
      * Returns a Promise that resolves to this Table.
      */
     const mappedColumnNames = Object.assign({}, this.mappedColumnNames, keyMap)
-    return this._pipeCSVFile(path, this._updateRecord, [mappedColumnNames], delimiter, 5)
+    const ignoreNullValues = !this.hasNulls
+    return this._pipeCSVFile(path, this._updateRecord, [mappedColumnNames, ignoreNullValues], delimiter, 5)
       .then(thisTable => {
         return Promise.all(Object.keys(translations).map(language => {
-          return this._pipeCSVFile(translations[language], this._updateRecord, [mappedColumnNames, language], delimiter, 5)
+          return this._pipeCSVFile(translations[language], this._updateRecord, [mappedColumnNames, ignoreNullValues, language], delimiter, 5)
         }))
       })
       .then(() => {
         return this
       })
+  }
+
+  get hasNulls () {
+    for (const def of Object.values(this._schema)) {
+      if (def.hasNulls) {
+        return true
+      }
+    }
+    return false
+  }
+
+  get hasNullsAndZeros () {
+    for (const def of Object.values(this._schema)) {
+      if (def.hasNulls && def.hasZeros) {
+        return true
+      }
+    }
+    return false
   }
 
   async loadCSVFile (path, columns = [], keyMap = {}, translations = {}, viaTmpTable = false, delimiter = ',') {
@@ -643,7 +665,7 @@ END;`
      *
      * Returns a Promise that resolves to this Table.
      */
-    if (viaTmpTable !== true || Object.keys(translations).length > 0) {
+    if (viaTmpTable !== true || this.hasNullsAndZeros || Object.keys(translations).length > 0) {
       return this.loadFromCSVFile(path, keyMap, translations, delimiter) // slower, but can handle large cells
     }
     // 1. Create a (temporary) table for the CSV file, using the CONNECT db engine.
@@ -711,11 +733,11 @@ END;`
     return this
   }
 
-  _updateSchemaWith (record, keyMap = {}, language) {
+  _updateSchemaWith (record, keyMap = {}, ignoreNullValues = false, language) {
     /*
      * Update the schema with the data from this record.
      */
-    const preparedRecord = this._prepareRecord(record, keyMap)
+    const preparedRecord = this._prepareRecord(record, keyMap, ignoreNullValues)
     for (const column of Object.keys(preparedRecord)) {
       const columnInKey = this.keys.has(column)
       const columnName = language ? (columnInKey ? column : `_${column}--${language}`) : column
@@ -736,33 +758,44 @@ END;`
         }
         this._schema[columnName] = def
       }
-      const typicalValue = preparedRecord[column]
-
+      const fieldValue = preparedRecord[column]
       // update cardinality estimate for columns in the key
       if (def.uniques && (def.cardinality === undefined || def.cardinality < 201)) {
-        def.uniques.add(typicalValue)
+        def.uniques.add(fieldValue)
         def.cardinality = def.uniques.size
         if (def.cardinality > 200) {
           delete def.uniques
         }
       }
 
-      if (typeof typicalValue === 'number') {
-        if (Number.isInteger(typicalValue)) {
-          if (!def.sqlType || def.sqlType === `INTEGER`) {
-            def.sqlType = typicalValue > 2147483647 ? `BIGINT` : `INTEGER`
+      if (fieldValue === null) {
+        if (def.hasNulls !== true) {
+          def.hasNulls = true
+          if (ignoreNullValues !== true) {
+            Log.warn(`${column} contains null value(s)!`)
           }
-        } else if (Number.isInteger(typicalValue) === false && def.sqlType !== `VARCHAR`) {
+        }
+      }
+
+      if (typeof fieldValue === 'number') {
+        if (fieldValue === 0) {
+          def.hasZeros = true
+        }
+        if (Number.isInteger(fieldValue)) {
+          if (!def.sqlType || def.sqlType === `INTEGER`) {
+            def.sqlType = fieldValue > 2147483647 ? `BIGINT` : `INTEGER`
+          }
+        } else if (Number.isInteger(fieldValue) === false && def.sqlType !== `VARCHAR`) {
           def.sqlType = `DOUBLE`
         }
-      } else if (typeof typicalValue === 'boolean' && !def.sqlType) {
+      } else if (typeof fieldValue === 'boolean' && !def.sqlType) {
         def.sqlType = `BOOLEAN`
-      } else if (typeof typicalValue === 'string') {
-        def.size = Math.max(sqlSafe(typicalValue).length + 1, def.size || 1)
+      } else if (typeof fieldValue === 'string') {
+        def.size = Math.max(sqlSafe(fieldValue).length + 1, def.size || 1)
         if ((!def.sqlType || def.sqlType === `BOOLEAN`) &&
-          (columnName.startsWith('is--') || typicalValue.toUpperCase() === 'TRUE' || typicalValue.toUpperCase() === 'FALSE')) {
+          (columnName.startsWith('is--') || fieldValue.toUpperCase() === 'TRUE' || fieldValue.toUpperCase() === 'FALSE')) {
           def.sqlType = `BOOLEAN`
-        } else if (typicalValue.match(/^[{[]{1}/)) {
+        } else if (fieldValue.match(/^[{[]{1}/)) {
           if (def.size > 100) {
             def.sqlType = `JSON`
           } else {
@@ -806,7 +839,7 @@ END;`
     })
   }
 
-  updateSchemaFromCSVFile (path, keyMap = {}, translations = {}) {
+  updateSchemaFromCSVFile (path, keyMap = {}, ignoreNullValues = false, translations = {}) {
     /*
      * Scan all records in the CSV file to find the optimal schema for each column in the file.
      *
@@ -820,10 +853,10 @@ END;`
      * Returns a Promise that resolves to this Table.
      */
     const mappedColumnNames = Object.assign({}, this.mappedColumnNames, keyMap)
-    return this._pipeCSVFile(path, this._updateSchemaWith, [mappedColumnNames])
+    return this._pipeCSVFile(path, this._updateSchemaWith, [mappedColumnNames, ignoreNullValues])
       .then(thisTable => {
         return Promise.all(Object.keys(translations).map(language => {
-          return this._pipeCSVFile(translations[language], this._updateSchemaWith, [mappedColumnNames, language])
+          return this._pipeCSVFile(translations[language], this._updateSchemaWith, [mappedColumnNames, ignoreNullValues, language])
         }))
       })
       .then(() => {
