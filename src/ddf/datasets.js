@@ -712,7 +712,7 @@ class Dataset {
     return {}
   }
 
-  async _createTableFor (ddfTable = { kind: 'datapoints', key: [], resources: [], values: [] }, translations = {}, options = { onlyParse: false, viaTmpTable: false }) {
+  async _createTableFor (ddfTable = { kind: 'datapoints', key: [], resources: [], values: [] }, translations = {}, options = { onlyParse: false, viaTmpTable: false, ignoreNullValues: false }) {
     let table = new Table(this._getCollection(ddfTable.key.join('$')), ddfTable.fieldMap, ddfTable.key)
     const files = ddfTable.resources.reduce((files, resourceName) => {
       const resourceDef = this._resources[resourceName]
@@ -728,7 +728,7 @@ class Dataset {
     }, {})
     for (const file of Object.keys(files)) {
       const fileDetails = files[file]
-      await table.updateSchemaFromCSVFile(file, fileDetails.keyMap, translations[file])
+      await table.updateSchemaFromCSVFile(file, fileDetails.keyMap, options.ignoreNullValues, translations[file])
     }
     table.updateSchemaWithColumns(ddfTable.values)
     Log.info(`Expected row size is ${table.estimatedRowSize} bytes`)
@@ -820,17 +820,18 @@ class Dataset {
 
     const translations = await this._getTranslations(dirPath, dataPackage)
 
+    const nonDataFileOptions = Object.assign({}, options, { ignoreNullValues: true })
     // 1. Read concepts from file(s) and store in 'concepts' collection.
-    const concepts = await this._createTableFor(this.schema.conceptsTableDefinition, translations)
+    const concepts = await this._createTableFor(this.schema.conceptsTableDefinition, translations, nonDataFileOptions)
     // 2. Update the schema with mapping of entity sets to entity domains
     // TODO: check that the domain of an entity set actually refers to a concept of type entity_domain!
     this.schema.ensureDomains(await DB.query(`SELECT concept AS name, domain FROM \`${concepts.tableName}\` WHERE concept_type = 'entity_set';`))
     // 3. Create tables for each entity domain and load all files for that entity domain.
     for (const tableDef of this.schema.domainTableDefinitions) {
-      await this._createTableFor(tableDef, translations, options)
+      await this._createTableFor(tableDef, translations, nonDataFileOptions)
     }
     // 4. Now create the datapoints tables and then load all the data.
-    const datapointTableOptions = Object.assign({ viaTmpTable: true }, options)
+    const datapointTableOptions = Object.assign({ viaTmpTable: true }, options, { ignoreNullValues: false })
     for (const tableDef of this.schema.datapointTableDefinitions) {
       const table = await this._createTableFor(tableDef, translations, datapointTableOptions)
       if (options.onlyParse !== true) {
