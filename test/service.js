@@ -174,7 +174,7 @@ describe('DDF Service', function () {
           response.body.should.be.an('object')
           response.body.should.have.keys(['header', 'rows', 'version'])
           response.body.header.should.have.members(['concept', 'name'])
-          response.body.rows.should.contain.one.eql(['bs', 'bs %']) // no escaping of percent sign! 
+          response.body.rows.should.contain.one.eql(['bs', 'bs %']) // no escaping of percent sign!
         })
     })
     it('fetch populations in cities', function () {

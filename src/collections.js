@@ -32,7 +32,7 @@ function sqlSafe (value, quoteResultIfNeeded = false) {
     return value
   }
   // eslint-disable-next-line no-control-regex
-  const regex = quoteResultIfNeeded ? /[\0\x08\x09\x1a'\\]/g : /[\0\x08\x09\x1a\n\r'\\%]/g // if the result will be quoted, which is typical for "values", it's ok for the string to contain new lines and percent signs 
+  const regex = quoteResultIfNeeded ? /[\0\x08\x09\x1a'\\]/g : /[\0\x08\x09\x1a\n\r'\\%]/g // if the result will be quoted, which is typical for "values", it's ok for the string to contain new lines and percent signs
   const matches = ['\\0', '\\x08', '\\x09', '\\x1a', '\\n', '\\r', "'", '"', '\\', '\\\\', '%']
   const replacements = ['\\\\0', '\\\\b', '\\\\t', '\\\\z', '\\\\n', '\\\\r', "''", '""', '\\\\', '\\\\\\\\', '\\%']
   const safeValue = value.replace(regex, (char) => replacements[matches.indexOf(char)])
