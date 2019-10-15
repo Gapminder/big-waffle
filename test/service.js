@@ -163,6 +163,20 @@ describe('DDF Service', function () {
           response.body.rows.should.contain.one.eql(['gas', null])
         })
     })
+    it('check % sign in concept name', function () {
+      return client.query({
+        select: { key: ['concept'], value: ['name'] },
+        from: 'concepts'
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['concept', 'name'])
+          response.body.rows.should.contain.one.eql(['bs', 'bs %']) // no escaping of percent sign! 
+        })
+    })
     it('fetch populations in cities', function () {
       return client.query({
         select: { key: ['city', 'time'], value: ['population'] },
