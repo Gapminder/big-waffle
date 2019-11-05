@@ -274,7 +274,7 @@ class DDFSchema {
           filters.push({ [column]: subFilters })
         }
       } else {
-        const tableColumn = this.resolveColumn(column)
+        const tableColumn = this.domains[column] || column
         const columnName = tableName ? `${tableName}.${tableColumn}` : tableColumn
         let condition = filter[column] // condition is either an object, or one of boolean, number, string or "variable" like '$geo'
         if (condition === null) { // but every now and then the condition is "null", which should not be allowed
