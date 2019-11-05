@@ -17,6 +17,7 @@ class DDFSchema {
     this.concepts = {}
     this.entities = {}
     this.datapoints = {}
+    this.roles = {}
     if (obj) {
       Object.assign(this, obj)
       if (obj.domains) { // this should be done last
@@ -39,10 +40,7 @@ class DDFSchema {
     /*
      * Exclude (list of) resources and change Table instances to plain objects
      */
-    const obj = { domains: Object.assign({}, this.domains) }
-    if (this.roles) {
-      obj.roles = Object.assign({}, this.roles)
-    }
+    const obj = { domains: Object.assign({}, this.domains), roles: Object.assign({}, this.roles) }
     for (const kind of ['concepts', 'entities', 'datapoints']) {
       obj[kind] = {}
       for (const key in this[kind]) {
@@ -166,12 +164,15 @@ class DDFSchema {
         entitySet.domain = domain
         this._domains[name] = domain
       } else if (conceptType === 'role') {
-        if (!this.roles) {
-          this.roles = {}
-        }
         this.roles[name] = domain
       }
     }
+  }
+
+  resolveColumn (column) {
+    // resolve the given column with the known roles and domains
+    let resolvedColumn = this.roles[column] || column
+    return this.domains[resolvedColumn] || resolvedColumn
   }
 
   get conceptsTableDefinition () {
@@ -273,7 +274,7 @@ class DDFSchema {
           filters.push({ [column]: subFilters })
         }
       } else {
-        const tableColumn = this.domains[column] || column
+        const tableColumn = this.resolveColumn(column)
         const columnName = tableName ? `${tableName}.${tableColumn}` : tableColumn
         let condition = filter[column] // condition is either an object, or one of boolean, number, string or "variable" like '$geo'
         if (condition === null) { // but every now and then the condition is "null", which should not be allowed
@@ -309,15 +310,16 @@ class DDFSchema {
      *
      * If the foreign table is in the list but with another "on" field raise an error.
      */
+    const innerOn = this.resolveColumn(on)
     for (const join of joins) {
       if (join.inner.name === foreignTable.name) {
-        if (join.on !== on) {
-          throw new QueryError(`Second join on '${foreignTable.name}' but with different key: '${on}'`)
+        if (join.innerOn !== innerOn) {
+          throw new QueryError(`Second join on '${foreignTable.name}' but with different key: '${innerOn}'`)
         }
         return
       }
     }
-    joins.push({ inner: foreignTable, on })
+    joins.push({ inner: foreignTable, innerOn: innerOn, on })
   }
 
   sqlFor (ddfQuery) {
@@ -362,9 +364,7 @@ class DDFSchema {
         this._addFilter(filters, joinSpec.where)
       } else {
         this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
-        let on = joinOn.slice(1)
-        on = this.domains[on] || on
-        this._addJoin(joins, foreignTable, on)
+        this._addJoin(joins, foreignTable, joinOn.slice(1))
       }
     }
 
@@ -384,7 +384,8 @@ class DDFSchema {
   }
 
   definitionFor (kind = 'entities', key = []) {
-    const tableKey = key.map(k => this.domains[k] || k).sort().join('$')
+    const roleFreeKey = kind === 'entities' ? key.map(k => this.roles[k] || k) : key
+    const tableKey = roleFreeKey.map(k => this.domains[k] || k).sort().join('$')
     return this[kind][tableKey]
   }
 

@@ -492,7 +492,7 @@ class Table extends Collection {
     const columns = this._qualified(query.projection, language).join(', ')
     const innerJoin = query.joins && query.joins.length > 0
       ? query.joins.reduce((sql, join) => {
-        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${this._qualified(join.on)}=${join.inner._qualified(join.on)}`
+        sql += `\nINNER JOIN \`${join.inner.tableName}\` ON ${this._qualified(join.on)}=${join.inner._qualified(join.innerOn)}`
         return sql
       }, ` `)
       : ''

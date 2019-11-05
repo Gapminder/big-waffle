@@ -321,6 +321,30 @@ describe('DDF Service', function () {
           response.body.rows.should.have.lengthOf(4)
         })
     })
+    it('join on a role', function () {
+      return client.query({
+        select: { key: ['destination', 'gender', 'origin', 'time'], value: ['migrants'] },
+        from: 'datapoints',
+        where: {
+          $and: [{ origin: '$origin' }]
+        },
+        join: {
+          $origin: {
+            key: 'origin',
+            where: { latitude: { $gt: 20 } }
+          }
+        },
+        order_by: ['destination']
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['destination', 'gender', 'origin', 'time', 'migrants'])
+          response.body.rows.should.have.lengthOf(5)
+        })
+    })
     it('query with empty result', function () {
       return client.query({
         select: { key: ['gender', 'country', 'time'], value: ['population'] },
