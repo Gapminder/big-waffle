@@ -192,10 +192,14 @@ class Collection {
      * header=1 sep_char=',' quoted=1;
      */
     const csvTableName = `TT${Crypto.createHash('md5').update(path).digest('hex')}`
-    const csvHeader = await firstline(path)
+    let csvHeader = await firstline(path)
+    csvHeader = csvHeader.trim()
     const csvColumns = this._columns(csvHeader.split(delimiter).map(columnName => keyMap[columnName] || columnName))
     const columnDefs = csvColumns.reduce((statement, columnName) => {
       const def = this._schema[columnName]
+      if (!def) {
+        throw new Error(`DDF schema related to ${path} seems wrong!`)
+      }
       let type = def.sqlType
       if (type === `JSON`) { // JSON type is not supported for CSV files
         type = `VARCHAR`
