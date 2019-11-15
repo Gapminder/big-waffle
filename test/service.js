@@ -139,10 +139,11 @@ describe('DDF Service', function () {
           response.body.should.be.an('object')
           response.body.should.have.keys(['header', 'rows', 'version'])
           response.body.header.should.have.members(['key', 'value'])
-          response.body.rows.should.have.lengthOf(63)
+          response.body.rows.should.have.lengthOf(64)
           response.body.rows.should.contain.one.deep.equal([['concept'], 'scales'])
           response.body.rows.should.contain.one.deep.equal([['city'], 'longitude'])
           response.body.rows.should.contain.one.deep.equal([['country', 'gender', 'time'], 'population'])
+          response.body.rows.should.contain.one.deep.equal([['destination', 'gender', 'origin', 'time'], 'migrants'])
         })
     })
     it('fetch entities with domains', function () {
@@ -300,6 +301,83 @@ describe('DDF Service', function () {
           response.body.should.have.keys(['header', 'rows', 'version'])
           response.body.header.should.have.members(['country', 'gender', 'time', 'population'])
           response.body.rows.should.have.lengthOf(3)
+        })
+    })
+    it('query for data about roles', function () {
+      return client.query({
+        select: { key: ['destination', 'gender', 'origin', 'time'], value: ['migrants'] },
+        from: 'datapoints',
+        where: {
+          time: { $gte: 2000, $lte: 2004 }
+        },
+        order_by: ['time']
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['destination', 'gender', 'origin', 'time', 'migrants'])
+          response.body.rows.should.have.lengthOf(4)
+        })
+    })
+    it('query properties of a role', function () {
+      return client.query({
+        select: { key: ['destination'], value: ['name'] },
+        from: 'entities',
+        where: {
+          destination: 'fin'
+        }
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['destination', 'name'])
+          response.body.rows.should.all.include.members(['Finland'])
+        })
+    })
+    it('filter on a role', function () {
+      return client.query({
+        select: { key: ['destination', 'gender', 'origin', 'time'], value: ['migrants'] },
+        from: 'datapoints',
+        where: {
+          origin: 'fin'
+        },
+        order_by: ['destination']
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['destination', 'gender', 'origin', 'time', 'migrants'])
+          response.body.rows.should.all.include.members(['fin'])
+        })
+    })
+    it('join on a role', function () {
+      return client.query({
+        select: { key: ['destination', 'gender', 'origin', 'time'], value: ['migrants'] },
+        from: 'datapoints',
+        where: {
+          $and: [{ origin: '$origin' }]
+        },
+        join: {
+          $origin: {
+            key: 'origin',
+            where: { latitude: { $gt: 20 } }
+          }
+        },
+        order_by: ['destination']
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['destination', 'gender', 'origin', 'time', 'migrants'])
+          response.body.rows.should.have.lengthOf(5)
         })
     })
     it('query with empty result', function () {

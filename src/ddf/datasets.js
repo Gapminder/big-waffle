@@ -17,6 +17,7 @@ class DDFSchema {
     this.concepts = {}
     this.entities = {}
     this.datapoints = {}
+    this.roles = {}
     if (obj) {
       Object.assign(this, obj)
       if (obj.domains) { // this should be done last
@@ -39,7 +40,7 @@ class DDFSchema {
     /*
      * Exclude (list of) resources and change Table instances to plain objects
      */
-    const obj = { domains: Object.assign({}, this.domains) }
+    const obj = { domains: Object.assign({}, this.domains), roles: Object.assign({}, this.roles) }
     for (const kind of ['concepts', 'entities', 'datapoints']) {
       obj[kind] = {}
       for (const key in this[kind]) {
@@ -137,24 +138,41 @@ class DDFSchema {
     return this.domains
   }
 
-  ensureDomains (entitySets) {
+  ensureDomains (concepts) {
+    /*
+     * Ensure that the schema will have domains for the entity sets and roles of the concepts
+     * and save the mapping between those concepts and their domains.
+     */
     if (!this._domains) {
-      this._domains = {} // map entity sets to domains
+      this._domains = {} // map entity sets and roles to domains
     }
-    for (const { name, domain } of entitySets) {
-      if (!(domain && name)) {
+    for (const { name, conceptType, domain } of concepts) {
+      if (conceptType === 'role' && !domain) {
+        throw new SchemaError(`Role ${name} must refer to a domain!`)
+      }
+      if (!(domain && name)) { // top level entity set that is it's own domain
         continue
       }
-      const entitySet = this.entities[name]
-      if (!entitySet) {
-        continue
+      if (conceptType === 'entity_set') {
+        const entitySet = this.entities[name]
+        if (!entitySet) {
+          continue
+        }
+        if (entitySet.domain && entitySet.domain !== domain) {
+          throw new SchemaError(`Entity set ${name} can only have one domain!`)
+        }
+        entitySet.domain = domain
+        this._domains[name] = domain
+      } else if (conceptType === 'role') {
+        this.roles[name] = domain
       }
-      if (entitySet.domain && entitySet.domain !== domain) {
-        throw new SchemaError(`Entity set ${name} can only have one domain!`)
-      }
-      entitySet.domain = domain
-      this._domains[name] = domain
     }
+  }
+
+  resolveColumn (column) {
+    // resolve the given column with the known roles and domains
+    let resolvedColumn = this.roles[column] || column
+    return this.domains[resolvedColumn] || resolvedColumn
   }
 
   get conceptsTableDefinition () {
@@ -292,15 +310,16 @@ class DDFSchema {
      *
      * If the foreign table is in the list but with another "on" field raise an error.
      */
+    const innerOn = this.resolveColumn(on)
     for (const join of joins) {
       if (join.inner.name === foreignTable.name) {
-        if (join.on !== on) {
-          throw new QueryError(`Second join on '${foreignTable.name}' but with different key: '${on}'`)
+        if (join.innerOn !== innerOn) {
+          throw new QueryError(`Second join on '${foreignTable.name}' but with different key: '${innerOn}'`)
         }
         return
       }
     }
-    joins.push({ inner: foreignTable, on })
+    joins.push({ inner: foreignTable, innerOn: innerOn, on })
   }
 
   sqlFor (ddfQuery) {
@@ -310,10 +329,12 @@ class DDFSchema {
     // replace key entries that refer to entities to corresponding domains
     const filters = []
     const joins = []
+    const fromEntities = ddfQuery.from === 'entities'
     for (const k of ddfQuery.select.key) {
+
       const domain = this.domains[k]
       if (domain) {
-        if (ddfQuery.from === 'entities') {
+        if (fromEntities) {
           this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } })
         } else {
           const foreignTable = this.tableFor('entities', [domain])
@@ -322,7 +343,7 @@ class DDFSchema {
         }
       }
     }
-    const key = ddfQuery.select.key.map(k => this.domains[k] || k)
+    const key = ddfQuery.select.key.map(k => this.domains[k] || (fromEntities ? this.roles[k] || k : k))
     const table = this.tableFor(ddfQuery.from, key)
     if (!table) {
       throw QueryError.NotSupported()
@@ -345,13 +366,23 @@ class DDFSchema {
         this._addFilter(filters, joinSpec.where)
       } else {
         this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
-        let on = joinOn.slice(1)
-        on = this.domains[on] || on
-        this._addJoin(joins, foreignTable, on)
+        this._addJoin(joins, foreignTable, joinOn.slice(1))
       }
     }
 
-    this._addFilter(filters, ddfQuery.where || {})
+    const where = Object.assign({}, ddfQuery.where)
+    // if the filter is on a role and the query is for entities change the filter to be on the domain
+    if (fromEntities) {
+      const roles = this.roles
+      for (const column in where) {
+        if (roles[column]) {
+          where[roles[column]] = where[column]
+          delete where[column]
+        }
+      }
+    }
+
+    this._addFilter(filters, where || {})
 
     const values = [...projection, ...this.definitionFor(ddfQuery.from, key).values]
     const sort = (ddfQuery.order_by || []).reduce((sort, fieldSpec) => {
@@ -367,7 +398,8 @@ class DDFSchema {
   }
 
   definitionFor (kind = 'entities', key = []) {
-    const tableKey = key.map(k => this.domains[k] || k).sort().join('$')
+    const roleFreeKey = kind === 'entities' ? key.map(k => this.roles[k] || k) : key
+    const tableKey = roleFreeKey.map(k => this.domains[k] || k).sort().join('$')
     return this[kind][tableKey]
   }
 
@@ -823,9 +855,9 @@ class Dataset {
     const nonDataFileOptions = Object.assign({}, options, { ignoreNullValues: true })
     // 1. Read concepts from file(s) and store in 'concepts' collection.
     const concepts = await this._createTableFor(this.schema.conceptsTableDefinition, translations, nonDataFileOptions)
-    // 2. Update the schema with mapping of entity sets to entity domains
+    // 2. Update the schema with mapping of entity sets and roles to entity domains
     // TODO: check that the domain of an entity set actually refers to a concept of type entity_domain!
-    this.schema.ensureDomains(await DB.query(`SELECT concept AS name, domain FROM \`${concepts.tableName}\` WHERE concept_type = 'entity_set';`))
+    this.schema.ensureDomains(await DB.query(`SELECT concept AS name, concept_type AS conceptType, domain FROM \`${concepts.tableName}\` WHERE concept_type IN ('entity_set', 'role');`))
     // 3. Create tables for each entity domain and load all files for that entity domain.
     for (const tableDef of this.schema.domainTableDefinitions) {
       await this._createTableFor(tableDef, translations, nonDataFileOptions)
