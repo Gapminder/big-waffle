@@ -198,7 +198,7 @@ class Collection {
     const columnDefs = csvColumns.reduce((statement, columnName) => {
       const def = this._schema[columnName]
       if (!def) {
-        throw new Error(`Dataset packaging error: no type for ${columnName} found in ${this.name}`)
+        throw new Error(`DDF schema related to ${path} seems wrong!`)
       }
       let type = def.sqlType
       if (type === `JSON`) { // JSON type is not supported for CSV files
