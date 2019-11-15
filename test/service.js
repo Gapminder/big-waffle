@@ -321,6 +321,23 @@ describe('DDF Service', function () {
           response.body.rows.should.have.lengthOf(4)
         })
     })
+    it('query properties of a role', function () {
+      return client.query({
+        select: { key: ['destination'], value: ['name'] },
+        from: 'entities',
+        where: {
+          destination: 'fin'
+        }
+      })
+        .set('Accept', 'application/json')
+        .expect(200)
+        .then(response => {
+          response.body.should.be.an('object')
+          response.body.should.have.keys(['header', 'rows', 'version'])
+          response.body.header.should.have.members(['destination', 'name'])
+          response.body.rows.should.all.include.members(['Finland'])
+        })
+    })
     it('filter on a role', function () {
       return client.query({
         select: { key: ['destination', 'gender', 'origin', 'time'], value: ['migrants'] },

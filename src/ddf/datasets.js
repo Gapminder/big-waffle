@@ -329,10 +329,12 @@ class DDFSchema {
     // replace key entries that refer to entities to corresponding domains
     const filters = []
     const joins = []
+    const fromEntities = ddfQuery.from === 'entities'
     for (const k of ddfQuery.select.key) {
+
       const domain = this.domains[k]
       if (domain) {
-        if (ddfQuery.from === 'entities') {
+        if (fromEntities) {
           this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } })
         } else {
           const foreignTable = this.tableFor('entities', [domain])
@@ -341,7 +343,7 @@ class DDFSchema {
         }
       }
     }
-    const key = ddfQuery.select.key.map(k => this.domains[k] || k)
+    const key = ddfQuery.select.key.map(k => this.domains[k] || (fromEntities ? this.roles[k] || k : k))
     const table = this.tableFor(ddfQuery.from, key)
     if (!table) {
       throw QueryError.NotSupported()
@@ -368,7 +370,19 @@ class DDFSchema {
       }
     }
 
-    this._addFilter(filters, ddfQuery.where || {})
+    const where = Object.assign({}, ddfQuery.where)
+    // if the filter is on a role and the query is for entities change the filter to be on the domain
+    if (fromEntities) {
+      const roles = this.roles
+      for (const column in where) {
+        if (roles[column]) {
+          where[roles[column]] = where[column]
+          delete where[column]
+        }
+      }
+    }
+
+    this._addFilter(filters, where || {})
 
     const values = [...projection, ...this.definitionFor(ddfQuery.from, key).values]
     const sort = (ddfQuery.order_by || []).reduce((sort, fieldSpec) => {
