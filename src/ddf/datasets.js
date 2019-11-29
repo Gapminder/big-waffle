@@ -24,6 +24,15 @@ class DDFSchema {
         this.domains = obj.domains
       }
     }
+    // set the values on the table objects, if any
+    for (const kind of ['concepts', 'entities', 'datapoints']) {
+      for (const key in this[kind]) {
+        const def = this[kind][key]
+        if (def && def.table) {
+          def.table.values = def.values
+  }
+      }
+    }
   }
 
   isInTimeDomain (key) {
@@ -259,22 +268,23 @@ class DDFSchema {
     return Object.values(tables)
   }
 
-  _addFilter (filters, filter, tableName = null) {
+  _addFilter (filters, filter, table = null) {
     /*
      * Retain the MongoDb syntax, but ensure canonical forms
      */
+    const tableName = table ? table.name : null
     for (const column in filter) {
       if (['$and', '$or'].includes(column)) {
         // maintain the nesting, i.e. recurse
         const subFilters = filter[column].reduce((subFilters, f) => { // filter.$and MUST be an Array
-          this._addFilter(subFilters, f, tableName)
+          this._addFilter(subFilters, f, table)
           return subFilters
         }, [])
         if (subFilters.length > 0) {
           filters.push({ [column]: subFilters })
         }
       } else {
-        const tableColumn = this.domains[column] || column
+        const tableColumn = table && table.values && table.values.includes(column) ? column : this.domains[column] || column
         const columnName = tableName ? `${tableName}.${tableColumn}` : tableColumn
         let condition = filter[column] // condition is either an object, or one of boolean, number, string or "variable" like '$geo'
         if (condition === null) { // but every now and then the condition is "null", which should not be allowed
@@ -339,7 +349,7 @@ class DDFSchema {
         } else {
           const foreignTable = this.tableFor('entities', [domain])
           this._addJoin(joins, foreignTable, domain)
-          this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } }, foreignTable.name)
+          this._addFilter(filters, { [`is--${k.toLowerCase()}`]: { $eq: true } }, foreignTable)
         }
       }
     }
@@ -365,7 +375,7 @@ class DDFSchema {
       } else if (foreignTable === table) {
         this._addFilter(filters, joinSpec.where)
       } else {
-        this._addFilter(filters, joinSpec.where || {}, foreignTable.name)
+        this._addFilter(filters, joinSpec.where || {}, foreignTable)
         this._addJoin(joins, foreignTable, joinOn.slice(1))
       }
     }
