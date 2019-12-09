@@ -1,3 +1,5 @@
+require('dotenv').config() // load a .env file if there is any
+
 function getEnvironmentVariable (key, _default) {
   const envVAR = process.env[key]
   if (envVAR) {
