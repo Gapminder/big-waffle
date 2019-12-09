@@ -27,7 +27,7 @@ function list (name) {
     return entry
   })
   if (name) {
-    result = result.filter(entry => entry.name && entry.name === 'test')
+    result = result.filter(entry => entry.name && entry.name === name)
   }
   return result
 }
@@ -36,10 +36,21 @@ describe('CLI', function () {
   this.timeout(cliOptions.timeout * 3)
   describe('load', function () {
     it('Load test dataset without errors', function () {
-      const scriptOutput = loadTestData()
+      const scriptOutput = loadTestData() // this will have a version based on the date, e.g. "2019030601"
       scriptOutput.toString().should.not.match(/error/i)
       const datasets = list('test')
       datasets.should.be.an('array').that.contains.something.like({ name: 'test' })
+    })
+    it('Autoincrement version', function () {
+      const nrOfDatasets = list('test').length
+      const scriptOutput = loadTestData() // this should have a version one number up from the previous one
+      scriptOutput.toString().should.not.match(/error/i)
+      const datasets = list('test')
+      const versions = datasets.map(ds => ds.version)
+      datasets.should.be.an('array').with.lengthOf(nrOfDatasets + 1)
+      versions.should.be.an('array').with.lengthOf(nrOfDatasets + 1)
+      const latestVersions = versions.slice(0,2)
+      latestVersions[0].should.match(new RegExp(latestVersions[1].slice(0, -2) + '02'))
     })
     it('Load test dataset and save with version', function () {
       const scriptOutput = loadTestData('test', 0, 'v2')
