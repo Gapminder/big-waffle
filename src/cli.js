@@ -4,10 +4,10 @@ const Moment = require('moment')
 
 const { DB } = require('./maria')
 const { Dataset } = require('./ddf/datasets')
-const { Slack } = require('./notifications')
+const Log = require('./log')()
+const Notifications = require('./notifications')
 
 function load (name, version, dirPath, options) {
-  var msg
   if (version === 'latest') {
     throw new Error(`Cannot use "latest" as a version`)
   }
@@ -17,9 +17,7 @@ function load (name, version, dirPath, options) {
         await ds.importAssets(dirPath)
       } else {
         if (!ds.isNew && version) {
-          msg = `Dataset ${name}.${version} already exists`
-          await Slack(msg)
-          throw new Error(msg)
+          throw new Error(`Dataset ${name}.${version} already exists`)
         }
         if (!ds.isNew || !version) {
           ds.incrementVersion()
@@ -27,15 +25,13 @@ function load (name, version, dirPath, options) {
         if (ds.isNew && options.password) {
           ds.password = options.password
         }
-        await Slack(`Starting to load dataset ${name} from ${dirPath}${version ? `.${version}` : ''}`)
+        Log.notify(`Starting to load dataset ${name} from ${dirPath}${version ? `.${version}` : ''}`)
         const startTime = Moment.utc()
         await ds.loadFromDirectory(dirPath, options)
         if (options.onlyParse !== true) {
           await ds.save(options.publish)
         }
-        msg = `Loading dataset ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`
-        console.log(msg)
-        await Slack(msg)
+        Log.notify(`Loading dataset ${ds.name}.${ds.version} took ${Moment.utc().diff(startTime, 'minutes')} minutes.`)
       }
     })
 }
@@ -45,6 +41,13 @@ const parser = new ArgumentParser({
   addHelp: true,
   description: 'Tool to load and manage datasets in BigWaffle'
 })
+parser.addArgument(
+  '--logToSlack',
+  {
+    action: 'storeTrue',
+    help: 'Logs to a Slack channel, if configured in the environment'
+  }
+)
 const subparsers = parser.addSubparsers({
   title: 'commands',
   dest: 'command'
@@ -169,6 +172,9 @@ async function showList (datasets, named = undefined) {
 
 async function run () {
   const args = parser.parseArgs()
+  if (args.logToSlack) {
+    Notifications.logToSlack()
+  }
   if (args.command === 'load') {
     return load(args.dataset, args.version, resolve(args.directory), { assetsOnly: args.assets_only, onlyParse: args.only_parse, publish: args.publish, password: args.password })
   } else if (args.command === 'delete') {
@@ -189,7 +195,7 @@ run()
     process.exitCode = 0
   })
   .catch(err => {
-    console.info(`Error: ${err.message}`)
+    Log.notify(`Error: ${err.message}`)
     process.exitCode = 1
   })
   .finally(() => {

@@ -20,6 +20,7 @@
     "basic-auth": "^2.0.1",
     "bunyan": "^1.8.12",
     "csv-parse": "^4.4.1",
+    "dotenv": "^8.2.0",
     "firstline": "^2.0.2",
     "jsonfile": "^5.0.0",
     "koa": "^2.7.0",
