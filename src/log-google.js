@@ -4,8 +4,8 @@ const { LoggingBunyan } = require('@google-cloud/logging-bunyan')
 const GoogleLogLevel = process.env.GOOGLE_LOG_LEVEL || process.env.LOG_LEVEL || 'info'
 const GoogleLogName = process.env.GOOGLE_LOG_NAME || 'master'
 
-const RecordLimit = 200
-const ShorterMessageLength = 30
+const RecordLimit = 50000
+const ShorterMessageLength = 10000
 
 module.exports = (logger) => {
   const logRecordLimiter = new Transform({
