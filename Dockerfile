@@ -1,12 +1,12 @@
 # Use an official NodeJS runtime as a parent image
-FROM node:10-alpine as builder
+FROM node:lts-alpine as builder
 
 ## Install build toolchain, install node deps and compile native add-ons
 RUN apk add --no-cache --virtual .gyp python make g++
 COPY package.json ./
 RUN npm install --production
 
-FROM node:alpine as app
+FROM node:lts-alpine as app
 
 RUN apk add --no-cache libc6-compat
 
