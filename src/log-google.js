@@ -44,5 +44,5 @@ module.exports = (logger) => {
     }
   })
   logRecordLimiter.pipe(googleLog.stream(GoogleLogLevel).stream, { end: false })
-  logger.addStream({ level: GoogleLogLevel, type: 'raw', stream: logRecordLimiter })
+  logger.addStream({ level: GoogleLogLevel, type: 'raw', stream: logRecordLimiter, reemitErrorEvents: false })
 }
