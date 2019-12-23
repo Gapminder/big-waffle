@@ -1,4 +1,5 @@
-const { Writable } = require('stream')
+const process = require('process')
+const { Transform, Writable } = require('stream')
 
 const Bunyan = require('bunyan')
 
@@ -7,7 +8,28 @@ const env = require('./env')
 const mainLog = Bunyan.createLogger({
   name: 'BigWaffle',
   level: env.LogLevel,
+  streams: [],
   serializers: Bunyan.stdSerializers
+})
+const logRecordLimiter = new Transform({
+  objectMode: false,
+
+  transform (chunk, encoding, callback) {
+    if (chunk.length > 50000) {
+      mainLog.warn('Received a too long log record!')
+      this.push(chunk.slice(0, 10000), encoding)
+      this.push('\n')
+      callback()
+    } else {
+      callback(null, chunk)
+    }
+  }
+})
+logRecordLimiter.pipe(process.stdout, { end: false })
+mainLog.addStream({
+  stream: logRecordLimiter,
+  type: 'stream',
+  reemitErrorEvents: false
 })
 
 /*
