@@ -30,7 +30,7 @@ class DDFSchema {
         const def = this[kind][key]
         if (def && def.table) {
           def.table.values = def.values
-  }
+        }
       }
     }
   }
@@ -341,7 +341,6 @@ class DDFSchema {
     const joins = []
     const fromEntities = ddfQuery.from === 'entities'
     for (const k of ddfQuery.select.key) {
-
       const domain = this.domains[k]
       if (domain) {
         if (fromEntities) {
