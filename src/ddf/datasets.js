@@ -290,7 +290,7 @@ class DDFSchema {
         if (condition === null) { // but every now and then the condition is "null", which should not be allowed
           const whereErr = QuerySyntaxError.WrongWhere()
           whereErr.message = `Invalid where clause ${column ? `for ${column}` : ''}. Condition is "null".`
-          throw whereErr
+          Log.warn(whereErr) // don't throw but log and ignore the filter. This as throwing seems to correlate with logging issues on GCK.
         } else if (typeof condition === 'object') {
           if (Object.keys(condition).length > 1) {
             // make the implicit $and explicit
