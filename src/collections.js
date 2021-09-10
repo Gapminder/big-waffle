@@ -217,7 +217,8 @@ class Collection {
       }
       return `${statement} \`${columnName}\` ${type},`
     }, '')
-    let sql = `CREATE TABLE ${csvTableName} (${columnDefs.slice(0, -1)}) 
+    let sql = `DROP TABLE IF EXISTS ${csvTableName};
+    CREATE TABLE ${csvTableName} (${columnDefs.slice(0, -1)}) 
     engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
     Log.debug(sql)
     const conn = await this.getConnection()
