@@ -217,12 +217,17 @@ class Collection {
       }
       return `${statement} \`${columnName}\` ${type},`
     }, '')
-    let sql = `DROP TABLE IF EXISTS ${csvTableName};
-    CREATE TABLE ${csvTableName} (${columnDefs.slice(0, -1)}) 
-    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
-    Log.debug(sql)
     const conn = await this.getConnection()
+    
+    let sql = `DROP TABLE IF EXISTS ${csvTableName};`
+    Log.debug(sql)
     await conn.query(sql)
+
+    sql = `CREATE TABLE ${csvTableName} (${columnDefs.slice(0, -1)}) 
+    engine=CONNECT table_type=CSV file_name='${path}' header=1 sep_char='${delimiter}' quoted=1;`
+    Log.debug(sql)    
+    await conn.query(sql)
+    
     return csvTableName
   }
 
