@@ -12,6 +12,7 @@ BigWaffle is a nodejs web application that can serve DDF Datasets. It is accompa
 - [License](#license)
 - [Tests](#tests)
 - [Contributing](#contributing)
+- [Troubleshoting](#troubleshoting)
 
 ## How it works
 
@@ -164,3 +165,37 @@ Test scripts can be run from npm: ```npm run test-cli``` and ```npm run test-ser
 ## Contributing
 
 Raise issues, fork and send us pull requests. Please don't send pull requests without referring to an issue, thank you!
+
+## Troubleshooting
+
+### Slack import issues
+
+See documentation and troubleshooting in [big-waffle-ops repo](https://github.com/Gapminder/big-waffle-ops#readme)
+
+### Ghost tables (Table already exists)
+
+The suspected reason the table existed already was probably that the instance ran out of space when attempting a particular import and thus never had a chance to. One can manually delete ghost tables:
+
+1. log in to the master instance 
+    - either via SSH in web interface
+    - or via gcloud sdk: `gcloud compute ssh --zone "europe-north1-a" "big-waffle-master" --project "big-waffle"`
+
+2. When inside, run:
+```
+sudo su
+su github
+mysql -u$DB_USER -p$DB_PWD -h localhost -A
+```
+
+3. When at the MySQL prompt, run:
+```
+USE gapminder;
+```
+
+4. Then remove the specific ghost table, e.g.:
+```
+MariaDB [gapminder]> DROP TABLE TT15e31a33c99c45546b27d3f96eb5aacb;
+Query OK, 0 rows affected (0.002 sec)
+MariaDB [gapminder]> DROP TABLE TT15e31a33c99c45546b27d3f96eb5aacb;
+ERROR 1051 (42S02): Unknown table 'gapminder.TT15e31a33c99c45546b27d3f96eb5aacb'
+```
