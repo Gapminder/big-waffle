@@ -74,6 +74,17 @@ class Query {
   }
 }
 
+function _preamblePush() {
+  this.push('{\n')
+  if (this._version) {
+    this.push(`"version":"${this._version}",\n`)
+  }
+  if (this.query.header) {
+    this.push(`"header":${JSON.stringify(this.query.header)},\n`)
+  }
+  this.push(`"rows": [\n`)
+}
+
 class RecordPrinter extends Transform {
   constructor (query, filterNullRecords = false) {
     /*
@@ -92,6 +103,7 @@ class RecordPrinter extends Transform {
       this._firstValueIndex = query.select.key.length
       this.filterNullRecords = true
     }
+    this._preamblePush = _preamblePush.bind(this)
   }
 
   set datasetVersion (version) {
@@ -102,14 +114,7 @@ class RecordPrinter extends Transform {
     try {
       if (!this._preamblePushed) {
         this._preamblePushed = true
-        this.push('{\n')
-        if (this._version) {
-          this.push(`"version":"${this._version}",\n`)
-        }
-        if (this.query.header) {
-          this.push(`"header":${JSON.stringify(this.query.header)},\n`)
-        }
-        this.push(`"rows": [\n`)
+        this._preamblePush()
       }
       if (this.filterNullRecords) {
         // don't push a record that only contains null values
@@ -133,6 +138,11 @@ class RecordPrinter extends Transform {
 
   _flush (callback) {
     try {
+      //push preamble if it isn't pushed yet
+      //in case of empty input stream 
+      if (!this._preamblePushed) {
+        this._preamblePush()
+      }
       this.push(`\n]`)
       const log = this.query.log
       if (log) {
